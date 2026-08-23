@@ -104,6 +104,21 @@ class _SignInScreenState extends State<SignInScreen> {
         }
       });
 
+  /// Ask for a reset. The link lands in email and opens the website, which is
+  /// where the new password is actually set: there is one reset flow, and the
+  /// app points at it rather than inventing a second one that could drift.
+  Future<void> _forgotPassword() async {
+    final email = _email.text.trim();
+    if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+      setState(() => _error = t('signin.email_first'));
+      return;
+    }
+    await _run(() async {
+      await widget.api.forgotPassword(email);
+      setState(() => _notice = t('signin.reset_sent', {'email': email}));
+    });
+  }
+
   Future<void> _openRegister() async {
     await Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => RegisterScreen(
@@ -192,6 +207,22 @@ class _SignInScreenState extends State<SignInScreen> {
                       obscureText: true,
                       style: const TextStyle(color: Brand.text, fontSize: 13),
                       onSubmitted: (_) => _busy ? null : _signIn(),
+                    ),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _busy ? null : _forgotPassword,
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          t('signin.forgot'),
+                          style: const TextStyle(
+                              color: Brand.muted, fontSize: 11, fontWeight: FontWeight.w700),
+                        ),
+                      ),
                     ),
                   ] else ...[
                     Text(

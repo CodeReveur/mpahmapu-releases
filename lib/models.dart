@@ -65,6 +65,11 @@ class Ride {
   final bool payViaPlatform;
   final int? rating;
   /// This motari's own rating of the passenger, once given.
+  /// A parcel: when the motari took it, said they delivered it, and it was agreed.
+  final DateTime? pickedUpAt;
+  final DateTime? deliveredAt;
+  final DateTime? deliveryConfirmedAt;
+  final DateTime? deliveryDisputedAt;
   final int? passengerRating;
   /// Set once the passenger has been asked to pay, near the destination.
   final bool payDue;
@@ -96,6 +101,10 @@ class Ride {
     this.paymentMethod,
     required this.payViaPlatform,
     this.rating,
+    this.pickedUpAt,
+    this.deliveredAt,
+    this.deliveryConfirmedAt,
+    this.deliveryDisputedAt,
     this.passengerRating,
     this.payDue = false,
     this.cashDeclaredAt,
@@ -132,6 +141,10 @@ class Ride {
         paymentMethod: j['paymentMethod'] as String?,
         payViaPlatform: j['payViaPlatform'] as bool? ?? false,
         rating: (j['rating'] as num?)?.toInt(),
+        pickedUpAt: DateTime.tryParse(j['pickedUpAt'] as String? ?? ''),
+        deliveredAt: DateTime.tryParse(j['deliveredAt'] as String? ?? ''),
+        deliveryConfirmedAt: DateTime.tryParse(j['deliveryConfirmedAt'] as String? ?? ''),
+        deliveryDisputedAt: DateTime.tryParse(j['deliveryDisputedAt'] as String? ?? ''),
         passengerRating: (j['passengerRating'] as num?)?.toInt(),
         payDue: j['payDue'] as bool? ?? false,
         cashDeclaredAt: DateTime.tryParse(j['cashDeclaredAt'] as String? ?? ''),
@@ -514,6 +527,12 @@ class PassengerRide {
   final String? paymentStatus;
   final bool payDue;
   final DateTime? cashDeclaredAt;
+  /// A parcel: when the motari took it, said they delivered it, and it was agreed.
+  final DateTime? pickedUpAt;
+  final DateTime? deliveredAt;
+  final DateTime? deliveryConfirmedAt;
+  final DateTime? deliveryDisputedAt;
+
   final int? rating;
 
   /// How wide the search has grown while nobody has taken it yet.
@@ -547,6 +566,10 @@ class PassengerRide {
     this.paymentStatus,
     this.payDue = false,
     this.cashDeclaredAt,
+    this.pickedUpAt,
+    this.deliveredAt,
+    this.deliveryConfirmedAt,
+    this.deliveryDisputedAt,
     this.rating,
     this.searchRadiusKm,
     this.searchSecondsLeft,
@@ -592,6 +615,10 @@ class PassengerRide {
         paymentStatus: j['paymentStatus'] as String?,
         payDue: j['payDue'] as bool? ?? false,
         cashDeclaredAt: DateTime.tryParse(j['cashDeclaredAt'] as String? ?? ''),
+        pickedUpAt: DateTime.tryParse(j['pickedUpAt'] as String? ?? ''),
+        deliveredAt: DateTime.tryParse(j['deliveredAt'] as String? ?? ''),
+        deliveryConfirmedAt: DateTime.tryParse(j['deliveryConfirmedAt'] as String? ?? ''),
+        deliveryDisputedAt: DateTime.tryParse(j['deliveryDisputedAt'] as String? ?? ''),
         rating: (j['rating'] as num?)?.toInt(),
         searchRadiusKm: (j['searchRadiusKm'] as num?)?.toInt(),
         searchSecondsLeft: (j['searchSecondsLeft'] as num?)?.toInt(),

@@ -14,6 +14,8 @@ class RidePanel extends StatefulWidget {
   final void Function(String rideId) onAccept;
   final void Function(String rideId) onArrived;
   final void Function(String rideId) onComplete;
+  final void Function(String rideId) onParcelReceived;
+  final void Function(String rideId) onParcelDelivered;
   final void Function(String rideId) onDenyCash;
   final void Function(String rideId, int stars) onRate;
   final void Function(String rideId) onHandBack;
@@ -31,6 +33,8 @@ class RidePanel extends StatefulWidget {
     required this.onAccept,
     required this.onArrived,
     required this.onComplete,
+    required this.onParcelReceived,
+    required this.onParcelDelivered,
     required this.onDenyCash,
     required this.onRate,
     required this.onHandBack,
@@ -289,13 +293,22 @@ class _RidePanelState extends State<RidePanel> {
   /* ── the ride in hand ─────────────────────────────────────────────────── */
 
   List<Widget> _activeRide(Ride ride) {
-    final title = switch (ride.status) {
-      'ASSIGNED' => t('ride.head_to_pickup'),
-      'ARRIVED' => t('ride.waiting_passenger'),
-      'IN_RIDE' => t('ride.in_progress'),
-      'COMPLETED' => t('ride.finished'),
-      _ => t('ride.ride'),
-    };
+    final title = ride.isCourier
+        ? switch (ride.status) {
+            'ASSIGNED' || 'ARRIVED' => t('parcel.go_collect'),
+            'IN_RIDE' => t('parcel.carrying'),
+            'COMPLETED' => ride.deliveredAt == null
+                ? t('parcel.at_destination')
+                : t('parcel.awaiting_owner'),
+            _ => t('parcel.parcel'),
+          }
+        : switch (ride.status) {
+            'ASSIGNED' => t('ride.head_to_pickup'),
+            'ARRIVED' => t('ride.waiting_passenger'),
+            'IN_RIDE' => t('ride.in_progress'),
+            'COMPLETED' => t('ride.finished'),
+            _ => t('ride.ride'),
+          };
 
     return [
       const SizedBox(height: 4),
@@ -372,6 +385,9 @@ class _RidePanelState extends State<RidePanel> {
   }
 
   List<Widget> _rideActions(Ride ride) {
+    // A parcel is handed over rather than sensed, so it has its own sequence:
+    // collect it, carry it, say it was delivered, and wait on the owner.
+    if (ride.isCourier) return _parcelActions(ride);
     switch (ride.status) {
       case 'ASSIGNED':
         return [
@@ -442,6 +458,98 @@ class _RidePanelState extends State<RidePanel> {
       default:
         return const [];
     }
+  }
+
+  /// What a motari carrying a parcel is asked to do, one thing at a time.
+  List<Widget> _parcelActions(Ride ride) {
+    switch (ride.status) {
+      case 'ASSIGNED':
+      case 'ARRIVED':
+        return [
+          PrimaryButton(
+            label: t('parcel.received'),
+            icon: Icons.inventory_2,
+            onPressed: widget.busy ? null : () => widget.onParcelReceived(ride.id),
+          ),
+          const SizedBox(height: 8),
+          _handBack(ride),
+        ];
+
+      case 'IN_RIDE':
+        return [
+          PrimaryButton(
+            label: t('parcel.delivered'),
+            icon: Icons.check_circle_outline,
+            onPressed: widget.busy ? null : () => widget.onParcelDelivered(ride.id),
+          ),
+        ];
+
+      case 'COMPLETED':
+        // Said delivered, and now it is the owner's word that settles it. The
+        // button stays until they agree or the grace period runs out, because
+        // a motari who taps it twice has still only delivered once.
+        if (ride.deliveredAt != null) {
+          return [
+            _note(
+              ride.deliveryDisputedAt != null
+                  ? t('parcel.owner_disputed')
+                  : t('parcel.waiting_owner'),
+              ride.deliveryDisputedAt != null ? Brand.red : Brand.amber,
+            ),
+            const SizedBox(height: 8),
+            ..._paymentState(ride),
+          ];
+        }
+        return [
+          PrimaryButton(
+            label: t('parcel.delivered'),
+            icon: Icons.check_circle_outline,
+            onPressed: widget.busy ? null : () => widget.onParcelDelivered(ride.id),
+          ),
+          const SizedBox(height: 8),
+          ..._paymentState(ride),
+        ];
+
+      default:
+        return const [];
+    }
+  }
+
+  /// Where the fare stands, which reads the same whether it was a parcel or a
+  /// passenger.
+  List<Widget> _paymentState(Ride ride) {
+    if (ride.paymentStatus == 'PAID') {
+      return [
+        Text(
+          ride.paymentMethod == 'CASH' ? t('ride.paid_cash') : t('ride.paid_platform'),
+          style: const TextStyle(color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800),
+        ),
+        ..._ratePassenger(ride),
+      ];
+    }
+    if (ride.cashDeclaredAt != null) {
+      return [
+        _note(t('ride.cash_declared'), Brand.amber),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: widget.busy ? null : () => widget.onDenyCash(ride.id),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Brand.red,
+            side: const BorderSide(color: Color(0xFF451A1A)),
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+          child: Text(t('ride.not_paid'),
+              style: const TextStyle(
+                  fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+        ),
+        ..._ratePassenger(ride),
+      ];
+    }
+    return [
+      _note(t('ride.awaiting_payment'), Brand.amber),
+      ..._ratePassenger(ride),
+    ];
   }
 
   Widget _note(String text, Color color) => Text(

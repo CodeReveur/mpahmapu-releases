@@ -28,10 +28,15 @@ class Api {
   static const _accessKey = 'access_token';
   static const _refreshKey = 'refresh_token';
   static const _nameKey = 'user_name';
+  static const _emailKey = 'user_email';
 
   String? _access;
   String? _refresh;
   String? userName;
+
+  /// The address on the account. Support messages are threaded by it, so a
+  /// complaint sent without one is a complaint the server refuses.
+  String? userEmail;
 
   bool get signedIn => _access != null;
 
@@ -42,6 +47,7 @@ class Api {
     _access = prefs.getString(_accessKey);
     _refresh = prefs.getString(_refreshKey);
     userName = prefs.getString(_nameKey);
+    userEmail = prefs.getString(_emailKey);
   }
 
   Future<void> _saveSession(Map<String, dynamic> data) async {
@@ -49,11 +55,13 @@ class Api {
     _refresh = data['refreshToken'] as String?;
     final user = data['user'] as Map<String, dynamic>?;
     userName = user?['name'] as String?;
+    userEmail = user?['email'] as String?;
 
     final prefs = await SharedPreferences.getInstance();
     if (_access != null) await prefs.setString(_accessKey, _access!);
     if (_refresh != null) await prefs.setString(_refreshKey, _refresh!);
     if (userName != null) await prefs.setString(_nameKey, userName!);
+    if (userEmail != null) await prefs.setString(_emailKey, userEmail!);
   }
 
   Future<void> signOut() async {
@@ -202,6 +210,12 @@ class Api {
   Future<void> resendCode(String email) =>
       _send('POST', '/api/auth/resend-otp', body: {'email': email});
 
+  /// Start a password reset. The server emails a link to the website, which is
+  /// where the new password is actually set: there is one reset flow, and the
+  /// app points at it rather than inventing a second one.
+  Future<void> forgotPassword(String email) =>
+      _public('POST', '/api/auth/forgot-password', body: {'email': email});
+
   // ── Asking for a motari (guest passenger, no account) ─────────────────────
 
   /// What a ride would cost. With no destination this is the rate card for a
@@ -281,6 +295,16 @@ class Api {
   /// Paying in cash. It stands on its own unless the motari says otherwise.
   Future<PassengerRide> declareCash(String token) async => PassengerRide.fromJson(
       await _public('POST', '/api/rides/public/$token/cash') as Map<String, dynamic>);
+
+  /// The owner agreeing the parcel arrived.
+  Future<PassengerRide> confirmDelivery(String token) async =>
+      PassengerRide.fromJson(await _public(
+          'POST', '/api/rides/public/$token/confirm-delivery') as Map<String, dynamic>);
+
+  /// The owner saying it never arrived. Support takes it from there.
+  Future<PassengerRide> disputeDelivery(String token, {String? note}) async =>
+      PassengerRide.fromJson(await _public('POST', '/api/rides/public/$token/dispute-delivery',
+          body: {'note': note}) as Map<String, dynamic>);
 
   Future<PassengerRide> rateRide(String token, int stars) async =>
       PassengerRide.fromJson(await _public('POST', '/api/rides/public/$token/rate',
@@ -403,6 +427,15 @@ class Api {
   Future<MotariState> accept(String rideId) => _rideAction(rideId, 'accept');
   Future<MotariState> decline(String rideId) => _rideAction(rideId, 'decline');
   Future<MotariState> arrived(String rideId) => _rideAction(rideId, 'arrived');
+
+  /// The parcel is in the motari's hands: for a courier job this stands in for
+  /// both arriving and starting.
+  Future<MotariState> parcelReceived(String rideId) =>
+      _rideAction(rideId, 'parcel-received');
+
+  /// The motari saying the parcel was delivered. The owner has a say after this.
+  Future<MotariState> parcelDelivered(String rideId) =>
+      _rideAction(rideId, 'parcel-delivered');
   Future<MotariState> start(String rideId) => _rideAction(rideId, 'start');
   Future<MotariState> complete(String rideId) => _rideAction(rideId, 'complete');
   Future<MotariState> paid(String rideId, String method) =>

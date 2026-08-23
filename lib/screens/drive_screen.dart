@@ -370,6 +370,8 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
               onAccept: (id) => _act(() => widget.api.accept(id)),
               onArrived: (id) => _act(() => widget.api.arrived(id)),
               onComplete: (id) => _act(() => widget.api.complete(id)),
+              onParcelReceived: (id) => _act(() => widget.api.parcelReceived(id)),
+              onParcelDelivered: (id) => _act(() => widget.api.parcelDelivered(id)),
               onDenyCash: (id) => _act(() => widget.api.denyCash(id)),
               onRate: (id, stars) => _act(() => widget.api.ratePassenger(id, stars)),
               onHandBack: (id) => _act(() => widget.api.handBack(id)),

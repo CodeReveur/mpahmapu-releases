@@ -1420,6 +1420,140 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   }
 
   List<Widget> _trackingActions(PassengerRide ride) {
+    if (ride.isCourier) return _parcelActions(ride);
+    return _rideActions(ride);
+  }
+
+  /// The parcel owner's side. Once a motari has the parcel it stops being
+  /// theirs to call off, and once it is said to be delivered they have two
+  /// things to do and one right to keep: pay, agree, or say it never came.
+  List<Widget> _parcelActions(PassengerRide ride) {
+    final delivered = ride.deliveredAt != null;
+    final settled = ride.deliveryConfirmedAt != null;
+    final disputed = ride.deliveryDisputedAt != null;
+    final paid = ride.paymentStatus == 'PAID' || ride.cashDeclaredAt != null;
+
+    if (disputed) {
+      return [
+        Text(t('parcel.you_disputed'),
+            style: const TextStyle(color: Brand.red, fontSize: 12, height: 1.4)),
+        const SizedBox(height: 8),
+        Text(t('parcel.support_will_call'), style: Brand.micro),
+      ];
+    }
+
+    if (settled) {
+      return [
+        Text(t('parcel.delivered_ok'),
+            style: const TextStyle(
+                color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800)),
+        if (ride.rating == null) ...[
+          const SizedBox(height: 10),
+          Text(t('track.rate'), style: Brand.micro),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              for (var n = 1; n <= 5; n++)
+                IconButton(
+                  padding: const EdgeInsets.only(right: 2),
+                  constraints: const BoxConstraints(),
+                  onPressed: _busy
+                      ? null
+                      : () => _act(() => widget.api.rateRide(ride.token!, n)),
+                  icon: const Icon(Icons.star_border, size: 26, color: Brand.amber),
+                ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 10),
+        PrimaryButton(label: t('track.new_ride'), onPressed: _startOver),
+      ];
+    }
+
+    if (delivered) {
+      return [
+        Text(t('parcel.motari_says_delivered'),
+            style: const TextStyle(
+                color: Brand.text, fontSize: 12.5, fontWeight: FontWeight.w700, height: 1.4)),
+        const SizedBox(height: 4),
+        Text(t('parcel.stands_soon'), style: Brand.micro),
+        const SizedBox(height: 10),
+        // Pay and confirm are two different things, so they are two buttons.
+        Row(
+          children: [
+            if (!paid)
+              Expanded(
+                child: PrimaryButton(
+                  label: t('parcel.pay_now'),
+                  icon: Icons.smartphone,
+                  onPressed: _busy
+                      ? null
+                      : () => _act(() => widget.api.payRide(
+                            ride.token!,
+                            phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+                          )),
+                ),
+              ),
+            if (!paid) const SizedBox(width: 8),
+            Expanded(
+              child: PrimaryButton(
+                label: t('parcel.confirm'),
+                icon: Icons.check,
+                onPressed:
+                    _busy ? null : () => _act(() => widget.api.confirmDelivery(ride.token!)),
+              ),
+            ),
+          ],
+        ),
+        if (!paid) ...[
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: _busy ? null : () => _act(() => widget.api.declareCash(ride.token!)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Brand.text,
+              side: const BorderSide(color: Brand.line),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text(t('track.paid_cash_button'),
+                style: const TextStyle(
+                    fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+          ),
+        ],
+        const SizedBox(height: 10),
+        // The right they keep, whatever the clock does.
+        GestureDetector(
+          onTap: _busy ? null : () => _act(() => widget.api.disputeDelivery(ride.token!)),
+          behavior: HitTestBehavior.opaque,
+          child: Center(
+            child: Text(
+              t('parcel.not_delivered'),
+              style: const TextStyle(
+                color: Brand.red,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ),
+        ),
+      ];
+    }
+
+    // On its way. Once the motari has it in hand there is nothing to cancel.
+    if (ride.pickedUpAt != null) {
+      return [
+        Text(t('parcel.on_its_way'), style: Brand.micro),
+        const SizedBox(height: 8),
+        Text(t('parcel.cannot_cancel'),
+            style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.4)),
+      ];
+    }
+
+    return _rideActions(ride);
+  }
+
+  List<Widget> _rideActions(PassengerRide ride) {
     // Paid, and nothing left to do but say how it went.
     if (ride.paymentStatus == 'PAID' || ride.status == 'CLOSED') {
       return [
