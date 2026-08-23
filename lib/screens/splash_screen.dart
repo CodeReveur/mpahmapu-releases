@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../i18n.dart';
 import '../theme.dart';
 
 /// The first two seconds of the app: a moto riding in along a road.
@@ -54,13 +55,21 @@ class _SplashScreenState extends State<SplashScreen>
   /// The name, arriving once the moto has somewhere to be.
   late final Animation<double> _name = CurvedAnimation(
     parent: _c,
-    curve: const Interval(0.34, 0.62, curve: Curves.easeOut),
+    curve: const Interval(0.30, 0.52, curve: Curves.easeOut),
   );
 
-  /// The whole scene stepping aside for the app.
+  /// Whose platform this is, signed at the bottom once the name has landed.
+  late final Animation<double> _from = CurvedAnimation(
+    parent: _c,
+    curve: const Interval(0.50, 0.70, curve: Curves.easeOut),
+  );
+
+  /// The whole scene stepping aside for the app. It waits: the parts arrive in
+  /// sequence and then the finished scene sits still for about half a second,
+  /// which is the difference between a splash and a flicker.
   late final Animation<double> _leave = CurvedAnimation(
     parent: _c,
-    curve: const Interval(0.86, 1.00, curve: Curves.easeIn),
+    curve: const Interval(0.90, 1.00, curve: Curves.easeIn),
   );
 
   @override
@@ -87,7 +96,7 @@ class _SplashScreenState extends State<SplashScreen>
             opacity: 1 - _leave.value,
             child: Center(
               child: SizedBox(
-                height: 190,
+                height: 250,
                 width: double.infinity,
                 child: Stack(
                   alignment: Alignment.center,
@@ -104,6 +113,7 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                     _moto(t),
                     _wordmark(),
+                    _poweredBy(),
                   ],
                 ),
               ),
@@ -133,6 +143,39 @@ class _SplashScreenState extends State<SplashScreen>
       ),
     );
   }
+
+  /// MpahMapu's own mark, in its own gold, under a line that says what it is.
+  /// The logo carries the platform; the app above it carries one part of it.
+  Widget _poweredBy() => Transform.translate(
+        offset: Offset(0, 92 + (1 - _from.value) * 6),
+        child: Opacity(
+          opacity: _from.value,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                t('splash.powered_by'),
+                style: const TextStyle(
+                  color: Brand.dim,
+                  fontSize: 8,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2.4,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Image.asset(
+                'assets/brand/mpahmapu.png',
+                // 480x105 in the original, so this is about 100 wide: enough
+                // for the wordmark beside the monogram to still be read.
+                height: 22,
+                filterQuality: FilterQuality.high,
+                // An asset that fails to decode should cost the splash nothing.
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
+      );
 
   Widget _wordmark() => Transform.translate(
         offset: Offset(0, 46 + (1 - _name.value) * 10),

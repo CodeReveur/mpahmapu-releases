@@ -32,7 +32,7 @@ cleartext exception, which the debug manifest already allows.
 
 | Screen | What it does |
 | --- | --- |
-| Splash | The moto rides in along a scrolling road while the session is read off the device. All drawn, no images. |
+| Splash | The moto rides in along a scrolling road while the session is read off the device, signed off with MpahMapu underneath. The scene is drawn rather than an image; only the MpahMapu logo is an asset. |
 | Ask | The passenger side, and where the app opens. Map, pickup, an optional destination, a name and a phone number, then the motari on their way. No account, and the ride is remembered on the device so closing the app comes back to it. |
 | Register | A motari account from inside the app: details, the emailed code, and straight into work. |
 | Permissions | The first screen on every launch. Location is required and the way through is to allow it; notifications and sound are asked for beside it but never block the door. |

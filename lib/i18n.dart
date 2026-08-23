@@ -60,6 +60,7 @@ const Map<String, Map<String, String>> _catalogue = {
   /* ── English ─────────────────────────────────────────────────────────── */
   'en': {
     'app.name': 'Motari',
+    'splash.powered_by': 'POWERED BY',
 
     'common.error': 'Something went wrong. Try again.',
     'common.save': 'Save',
@@ -283,6 +284,7 @@ const Map<String, Map<String, String>> _catalogue = {
   /* ── Français ────────────────────────────────────────────────────────── */
   'fr': {
     'app.name': 'Motari',
+    'splash.powered_by': 'PROPULSÉ PAR',
 
     'common.error': 'Une erreur est survenue. Réessayez.',
     'common.save': 'Enregistrer',
@@ -496,6 +498,7 @@ const Map<String, Map<String, String>> _catalogue = {
   /* ── Kinyarwanda ─────────────────────────────────────────────────────── */
   'kinyy': {
     'app.name': 'Motari',
+    'splash.powered_by': 'BITEWE NA',
 
     'common.error': 'Hari ikitagenze neza. Ongera ugerageze.',
     'common.save': 'Bika',
@@ -709,6 +712,7 @@ const Map<String, Map<String, String>> _catalogue = {
   /* ── Kiswahili ───────────────────────────────────────────────────────── */
   'sw': {
     'app.name': 'Motari',
+    'splash.powered_by': 'INAENDESHWA NA',
 
     'common.error': 'Kuna hitilafu. Jaribu tena.',
     'common.save': 'Hifadhi',
