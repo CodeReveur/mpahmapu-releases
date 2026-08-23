@@ -5,14 +5,15 @@ import 'api.dart';
 import 'i18n.dart';
 import 'screens/drive_screen.dart';
 import 'screens/permission_gate.dart';
+import 'screens/ride_screen.dart';
 import 'screens/sign_in_screen.dart';
 import 'theme.dart';
 
-/// Motari — the moto taxi driver app for MpahMapu.
+/// Motari — the moto taxi app for MpahMapu.
 ///
-/// It carries only the Motari vertical: sign in, go online, take rides and
-/// parcels, get paid, and settle the daily fee. Everything else the platform
-/// does stays on the website.
+/// It carries the Motari vertical from both ends: a passenger asks for a moto
+/// with no account at all, and a motari signs in to take the work, get paid and
+/// settle the daily fee. Everything else the platform does stays on the website.
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
@@ -39,6 +40,10 @@ class _MotariAppState extends State<MotariApp> {
   /// Cleared on every launch: the phone is asked what it allows each time the
   /// app starts, because a motari can revoke location between two shifts.
   bool _permitted = false;
+
+  /// Most people opening this app want a ride, not work. A motari says so once
+  /// and the app remembers by keeping their session.
+  bool _driving = false;
 
   @override
   void initState() {
@@ -71,15 +76,24 @@ class _MotariAppState extends State<MotariApp> {
         body: Center(child: CircularProgressIndicator(color: Brand.orange)),
       );
     }
-    // Location comes before everything, signed in or not: an app that cannot
-    // place the moto has nothing to show either side.
+    // Location comes before everything, either side of the app: one cannot be
+    // found, the other cannot be placed.
     if (!_permitted) {
       return PermissionGate(onReady: () => setState(() => _permitted = true));
     }
-    return _api.signedIn
-        ? DriveScreen(api: _api, onSignedOut: _onSignedOut)
-        : SignInScreen(api: _api, onSignedIn: () => setState(() {}));
+    // A signed-in motari is here to work, and goes straight to the map.
+    if (_api.signedIn) {
+      return DriveScreen(api: _api, onSignedOut: _onSignedOut);
+    }
+    if (_driving) {
+      return SignInScreen(
+        api: _api,
+        onSignedIn: () => setState(() {}),
+        onBack: () => setState(() => _driving = false),
+      );
+    }
+    return RideScreen(api: _api, onDrive: () => setState(() => _driving = true));
   }
 
-  void _onSignedOut() => setState(() {});
+  void _onSignedOut() => setState(() => _driving = false);
 }

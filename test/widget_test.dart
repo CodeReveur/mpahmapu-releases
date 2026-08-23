@@ -29,6 +29,8 @@ void main() {
         for (final key in [
           'gate.title', 'gate.location.why', 'signin.sign_in',
           'ride.starts_together', 'fees.pay_now', 'settings.log_out',
+          'ask.request', 'ask.name_your_price', 'track.searching',
+          'track.pay_momo', 'register.create', 'register.verify',
         ]) {
           expect(t(key), isNot(key), reason: '$code is missing $key');
         }

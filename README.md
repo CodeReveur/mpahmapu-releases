@@ -1,10 +1,11 @@
 # Motari
 
-The moto taxi driver app for MpahMapu, in Flutter.
+The moto taxi app for MpahMapu, in Flutter.
 
-It carries **only the Motari vertical** — sign in, go online, take rides and
-parcels, get paid, settle the daily fee. Everything else the platform does
-(jobs, workers, employers, admin) stays on the website.
+It carries **the Motari vertical from both ends**. A passenger opens it and asks
+for a moto with no account at all; a motari signs in to take the work, get paid
+and settle the daily fee. Everything else the platform does (jobs, workers,
+employers, admin) stays on the website.
 
 It talks to the same backend as the web apps, through the same
 `/api/rides/driver/**` endpoints, so a motari can move between the phone app and
@@ -31,11 +32,23 @@ cleartext exception, which the debug manifest already allows.
 
 | Screen | What it does |
 | --- | --- |
+| Ask | The passenger side, and where the app opens. Map, pickup, an optional destination, a name and a phone number, then the motari on their way. No account, and the ride is remembered on the device so closing the app comes back to it. |
+| Register | A motari account from inside the app: details, the emailed code, and straight into work. |
 | Permissions | The first screen on every launch. Location is required and the way through is to allow it; notifications and sound are asked for beside it but never block the door. |
-| Sign in | Email and password, with the authenticator-code and unverified-email steps handled in place. New motari register on the website. |
+| Sign in | Email and password, with the authenticator-code and unverified-email steps handled in place, and a way to register without leaving. |
 | Drive | The map, the online switch, the ride offer with its countdown, waiting passengers nearby, and the ride from pickup to payment. |
 | Money | Wallet, collected, rides, paid out, the payout history and recent trips. The daily fee lives here around the clock. |
 | Settings | Instant payout with its operator and number, carry parcels, an account-number change request, a complaint, and log out. |
+
+### The two sides
+
+The app opens on the passenger side, because most people who open it want a
+ride. "I drive" leads to sign in, and a motari who signs in stays signed in, so
+after the first time the app opens straight onto the working map.
+
+A passenger needs no account: a name and a phone number are the whole of it. The
+ride is held by a token kept on the device, which is what lets them close the app
+and come back to a ride already under way.
 
 ### The parts worth knowing
 
@@ -54,6 +67,15 @@ cleartext exception, which the debug manifest already allows.
   starts when both phones pull away together, the fare is asked for near the
   end, and it completes at the destination. Only a destination the map never
   had still needs a Complete.
+- **A destination off the map is still a destination.** Type-ahead asks
+  Nominatim directly — an app can send a User-Agent, which is the reason the web
+  needs a proxy and this does not. When nothing matches, the typed text becomes
+  the destination and the passenger names their own price, because there is no
+  route to measure.
+- **The icon is the app's own mark**, drawn from the same Material font Flutter
+  ships: the orange rounded square and the black moto that the permission and
+  sign-in screens show. `tool/make-icon.ps1` redraws every Android density, the
+  adaptive layers and the whole iOS set if the brand colour ever moves.
 
 ## Permissions
 

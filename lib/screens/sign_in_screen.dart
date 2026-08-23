@@ -5,6 +5,7 @@ import '../api.dart';
 import '../i18n.dart';
 import '../theme.dart';
 import '../widgets/language_button.dart';
+import 'register_screen.dart';
 
 /// Signing in as a motari. Email and password, with the two gates a customer
 /// account can hit handled in place: an authenticator code, or an email that
@@ -12,7 +13,16 @@ import '../widgets/language_button.dart';
 class SignInScreen extends StatefulWidget {
   final Api api;
   final VoidCallback onSignedIn;
-  const SignInScreen({super.key, required this.api, required this.onSignedIn});
+
+  /// Back to the passenger side, for someone who tapped "I drive" by mistake.
+  final VoidCallback? onBack;
+
+  const SignInScreen({
+    super.key,
+    required this.api,
+    required this.onSignedIn,
+    this.onBack,
+  });
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
@@ -94,6 +104,19 @@ class _SignInScreenState extends State<SignInScreen> {
         }
       });
 
+  Future<void> _openRegister() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => RegisterScreen(
+        api: widget.api,
+        onRegistered: () {
+          Navigator.of(context).pop();
+          widget.onSignedIn();
+        },
+      ),
+    ));
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final codeStep = _step != _Step.credentials;
@@ -102,6 +125,15 @@ class _SignInScreenState extends State<SignInScreen> {
         child: Stack(
           children: [
         const Positioned(top: 6, right: 10, child: LanguageButton()),
+        if (widget.onBack != null)
+          Positioned(
+            top: 2,
+            left: 4,
+            child: IconButton(
+              onPressed: widget.onBack,
+              icon: const Icon(Icons.arrow_back, size: 19, color: Brand.muted),
+            ),
+          ),
         Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(22),
@@ -221,11 +253,40 @@ class _SignInScreenState extends State<SignInScreen> {
                     ),
                   ],
 
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(child: Divider(color: Brand.line, height: 1)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(t('signin.or'), style: Brand.micro),
+                      ),
+                      const Expanded(child: Divider(color: Brand.line, height: 1)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _openRegister,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Brand.orange,
+                      side: const BorderSide(color: Color(0xFF7C3A10)),
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: Text(
+                      t('signin.register').toUpperCase(),
+                      style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   Text(
                     t('signin.register_hint'),
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Brand.dim, fontSize: 11),
+                    style: const TextStyle(color: Brand.dim, fontSize: 11, height: 1.4),
                   ),
                 ],
               ),

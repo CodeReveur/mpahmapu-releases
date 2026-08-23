@@ -92,6 +92,28 @@ class Api {
     return body['data'];
   }
 
+  /// A call made with no session at all: guest passengers request and track
+  /// rides by token, and an anonymous 401 has no session to refresh.
+  Future<dynamic> _public(
+    String method,
+    String path, {
+    Map<String, dynamic>? body,
+    Map<String, String>? query,
+  }) async {
+    final uri = _uri(path, query);
+    const headers = {'Content-Type': 'application/json', 'Accept': 'application/json'};
+    late http.Response res;
+    try {
+      res = switch (method) {
+        'POST' => await http.post(uri, headers: headers, body: jsonEncode(body ?? {})),
+        _ => await http.get(uri, headers: headers),
+      };
+    } catch (_) {
+      throw const ApiException('No connection. Check your data and try again.', 0);
+    }
+    return _unwrap(res);
+  }
+
   /// One request, retried once with a refreshed token when the session has
   /// merely expired — a driver should never be thrown out mid-shift.
   Future<dynamic> _send(
@@ -150,6 +172,23 @@ class Api {
     return data;
   }
 
+  /// Open an account from inside the app. The role is fixed: this app makes
+  /// motari, and nothing else. A fresh account always has an email to verify,
+  /// so the caller goes straight to the code step.
+  Future<void> register({
+    required String name,
+    required String email,
+    required String phone,
+    required String password,
+  }) =>
+      _send('POST', '/api/auth/register', body: {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'password': password,
+        'role': 'MOTARI',
+      });
+
   /// Finishes a login that asked for an authenticator code.
   Future<void> verifyTotp(String tempToken, String code) async {
     final data = await _send('POST', '/api/auth/2fa/authenticate',
@@ -162,6 +201,128 @@ class Api {
 
   Future<void> resendCode(String email) =>
       _send('POST', '/api/auth/resend-otp', body: {'email': email});
+
+  // ── Asking for a motari (guest passenger, no account) ─────────────────────
+
+  /// What a ride would cost. With no destination this is the rate card for a
+  /// metered ride rather than a price.
+  Future<Quote> quote({
+    required double pickupLat,
+    required double pickupLng,
+    double? destLat,
+    double? destLng,
+    String kind = 'RIDE',
+  }) async =>
+      Quote.fromJson(await _public('GET', '/api/rides/public/quote', query: {
+        'pickupLat': '$pickupLat',
+        'pickupLng': '$pickupLng',
+        if (destLat != null) 'destLat': '$destLat',
+        if (destLng != null) 'destLng': '$destLng',
+        'kind': kind,
+      }) as Map<String, dynamic>);
+
+  /// How many motari are around, so the passenger knows before they ask.
+  Future<Supply> supply(double lat, double lng, {String kind = 'RIDE'}) async =>
+      Supply.fromJson(await _public('GET', '/api/rides/public/supply', query: {
+        'lat': '$lat',
+        'lng': '$lng',
+        'kind': kind,
+      }) as Map<String, dynamic>);
+
+  /// Ask for a motari. No account: a name and a phone number are the whole of
+  /// it, and the ride comes back with the token that tracks it.
+  Future<PassengerRide> requestRide({
+    required String name,
+    required String phone,
+    required double pickupLat,
+    required double pickupLng,
+    String? pickupName,
+    double? destLat,
+    double? destLng,
+    String? destName,
+    String kind = 'RIDE',
+    String? parcelNote,
+    int? offeredFareRwf,
+    bool payViaPlatform = false,
+  }) async =>
+      PassengerRide.fromJson(await _public('POST', '/api/rides/public', body: {
+        'name': name,
+        'phone': phone,
+        'pickupLat': pickupLat,
+        'pickupLng': pickupLng,
+        'pickupName': pickupName,
+        'destLat': destLat,
+        'destLng': destLng,
+        'destName': destName,
+        'kind': kind,
+        'parcelNote': parcelNote,
+        'offeredFareRwf': offeredFareRwf,
+        'payViaPlatform': payViaPlatform,
+      }) as Map<String, dynamic>);
+
+  Future<PassengerRide> trackRide(String token) async => PassengerRide.fromJson(
+      await _public('GET', '/api/rides/public/$token') as Map<String, dynamic>);
+
+  Future<PassengerRide> cancelRide(String token, {String? reason}) async =>
+      PassengerRide.fromJson(await _public('POST', '/api/rides/public/$token/cancel',
+          body: {'reason': reason}) as Map<String, dynamic>);
+
+  /// Pay through the platform: a mobile money prompt reaches the phone.
+  Future<PassengerRide> payRide(String token, {String? phone}) async =>
+      PassengerRide.fromJson(await _public('POST', '/api/rides/public/$token/pay',
+          body: {'phone': phone}) as Map<String, dynamic>);
+
+  /// The passenger's own position, which is what lets a ride start itself when
+  /// the two phones pull away from the pickup together.
+  Future<PassengerRide> sendPosition(String token, double lat, double lng) async =>
+      PassengerRide.fromJson(await _public('POST', '/api/rides/public/$token/position',
+          body: {'lat': lat, 'lng': lng}) as Map<String, dynamic>);
+
+  /// Paying in cash. It stands on its own unless the motari says otherwise.
+  Future<PassengerRide> declareCash(String token) async => PassengerRide.fromJson(
+      await _public('POST', '/api/rides/public/$token/cash') as Map<String, dynamic>);
+
+  Future<PassengerRide> rateRide(String token, int stars) async =>
+      PassengerRide.fromJson(await _public('POST', '/api/rides/public/$token/rate',
+          body: {'stars': stars}) as Map<String, dynamic>);
+
+  /// Place search for the pickup and destination fields.
+  ///
+  /// The web goes through its own proxy because a browser cannot set a
+  /// User-Agent and Nominatim throttles anonymous browser traffic hard. An app
+  /// can set one, so it asks directly, biased to where the passenger is.
+  Future<List<Place>> searchPlaces(String query, {double? lat, double? lng}) async {
+    final q = query.trim();
+    if (q.length < 2) return const [];
+    const box = 0.22; // roughly 25 km, a bias rather than a fence
+    final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+      'format': 'jsonv2',
+      'limit': '6',
+      'countrycodes': 'rw',
+      'addressdetails': '1',
+      'q': q,
+      if (lat != null && lng != null) ...{
+        'viewbox': '${lng - box},${lat + box},${lng + box},${lat - box}',
+        'bounded': '0',
+      },
+    });
+    try {
+      final res = await http.get(uri, headers: {
+        'User-Agent': 'MpahMapu-Motari/1.0 (https://www.mpahmapu.com; support@mpahmapu.com)',
+        'Accept-Language': 'en',
+      }).timeout(const Duration(seconds: 6));
+      if (res.statusCode >= 400) return const [];
+      final raw = jsonDecode(res.body);
+      if (raw is! List) return const [];
+      return raw
+          .map((d) => Place.fromNominatim(d as Map<String, dynamic>))
+          .whereType<Place>()
+          .toList();
+    } catch (_) {
+      // Type-ahead that fails is silent: the passenger can still tap the map.
+      return const [];
+    }
+  }
 
   // ── The working screen ────────────────────────────────────────────────────
 

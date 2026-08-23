@@ -369,3 +369,236 @@ class MotariHistory {
             .toList(),
       );
 }
+
+
+/* ── the passenger's side ─────────────────────────────────────────────────── */
+
+/// A place the passenger picked, or typed and we found.
+class Place {
+  final double latitude;
+  final double longitude;
+  final String label;
+  final String fullName;
+
+  const Place({
+    required this.latitude,
+    required this.longitude,
+    required this.label,
+    required this.fullName,
+  });
+
+  /// Null when the row has no usable coordinates or no name to show.
+  static Place? fromNominatim(Map<String, dynamic> j) {
+    final lat = double.tryParse('${j['lat']}');
+    final lng = double.tryParse('${j['lon']}');
+    final full = (j['display_name'] as String?)?.trim() ?? '';
+    if (lat == null || lng == null || full.isEmpty) return null;
+    // The first two parts are the name and its neighbourhood, which is what a
+    // passenger recognises. The rest is district, province, country.
+    final label = full.split(',').take(2).join(',').trim();
+    if (label.isEmpty) return null;
+    return Place(latitude: lat, longitude: lng, label: label, fullName: full);
+  }
+}
+
+/// What a ride would cost, before asking for one.
+class Quote {
+  final String fareMode;
+  final String kind;
+  final int baseFareRwf;
+  final int perKmRwf;
+  final int minFareRwf;
+  /// Null on a metered ride: without a destination there is no price to quote.
+  final int? quotedFareRwf;
+  final double? distanceM;
+
+  const Quote({
+    required this.fareMode,
+    required this.kind,
+    required this.baseFareRwf,
+    required this.perKmRwf,
+    required this.minFareRwf,
+    this.quotedFareRwf,
+    this.distanceM,
+  });
+
+  factory Quote.fromJson(Map<String, dynamic> j) => Quote(
+        fareMode: j['fareMode'] as String? ?? 'METERED',
+        kind: j['kind'] as String? ?? 'RIDE',
+        baseFareRwf: (j['baseFareRwf'] as num?)?.toInt() ?? 0,
+        perKmRwf: (j['perKmRwf'] as num?)?.toInt() ?? 0,
+        minFareRwf: (j['minFareRwf'] as num?)?.toInt() ?? 0,
+        quotedFareRwf: (j['quotedFareRwf'] as num?)?.toInt(),
+        distanceM: (j['distanceM'] as num?)?.toDouble(),
+      );
+}
+
+/// How much moto there is around the passenger right now.
+class Supply {
+  final String kind;
+  final int active;
+  final double? nearestM;
+  final int minFareRwf;
+
+  const Supply({
+    required this.kind,
+    required this.active,
+    this.nearestM,
+    required this.minFareRwf,
+  });
+
+  factory Supply.fromJson(Map<String, dynamic> j) => Supply(
+        kind: j['kind'] as String? ?? 'RIDE',
+        active: (j['active'] as num?)?.toInt() ?? 0,
+        nearestM: (j['nearestM'] as num?)?.toDouble(),
+        minFareRwf: (j['minFareRwf'] as num?)?.toInt() ?? 0,
+      );
+}
+
+/// The motari who took the ride, as the passenger sees them.
+class RideDriver {
+  final String? name;
+  final String? phone;
+  final String? plateNumber;
+  final String? brandModel;
+  final double? rating;
+  final double? latitude;
+  final double? longitude;
+
+  const RideDriver({
+    this.name,
+    this.phone,
+    this.plateNumber,
+    this.brandModel,
+    this.rating,
+    this.latitude,
+    this.longitude,
+  });
+
+  factory RideDriver.fromJson(Map<String, dynamic> j) => RideDriver(
+        name: j['name'] as String?,
+        phone: j['phone'] as String?,
+        plateNumber: j['plateNumber'] as String?,
+        brandModel: j['brandModel'] as String?,
+        rating: (j['rating'] as num?)?.toDouble(),
+        latitude: (j['latitude'] as num?)?.toDouble(),
+        longitude: (j['longitude'] as num?)?.toDouble(),
+      );
+}
+
+/// The ride as the passenger sees it. Their copy carries the token, which is
+/// the only thing that proves this phone owns the ride.
+class PassengerRide {
+  final String id;
+  final String? token;
+  final String status;
+  final String kind;
+  final String fareMode;
+
+  final double pickupLat;
+  final double pickupLng;
+  final String? pickupName;
+  final double? destLat;
+  final double? destLng;
+  final String? destName;
+
+  final int baseFareRwf;
+  final int perKmRwf;
+  final int? quotedFareRwf;
+  final int? offeredFareRwf;
+  final int? finalFareRwf;
+  final double? quotedDistanceM;
+  final double riddenDistanceM;
+
+  final String? paymentMethod;
+  final String? paymentStatus;
+  final bool payDue;
+  final DateTime? cashDeclaredAt;
+  final int? rating;
+
+  /// How wide the search has grown while nobody has taken it yet.
+  final int? searchRadiusKm;
+  final int? searchSecondsLeft;
+  final String? cancelledBy;
+  final String? cancelReason;
+
+  final RideDriver? driver;
+
+  const PassengerRide({
+    required this.id,
+    this.token,
+    required this.status,
+    required this.kind,
+    required this.fareMode,
+    required this.pickupLat,
+    required this.pickupLng,
+    this.pickupName,
+    this.destLat,
+    this.destLng,
+    this.destName,
+    required this.baseFareRwf,
+    required this.perKmRwf,
+    this.quotedFareRwf,
+    this.offeredFareRwf,
+    this.finalFareRwf,
+    this.quotedDistanceM,
+    required this.riddenDistanceM,
+    this.paymentMethod,
+    this.paymentStatus,
+    this.payDue = false,
+    this.cashDeclaredAt,
+    this.rating,
+    this.searchRadiusKm,
+    this.searchSecondsLeft,
+    this.cancelledBy,
+    this.cancelReason,
+    this.driver,
+  });
+
+  bool get isCourier => kind == 'COURIER';
+
+  /// Still looking for a motari to take it.
+  bool get searching => status == 'SEARCHING';
+
+  /// A motari is on it, or on the way.
+  bool get live => const ['ASSIGNED', 'ARRIVED', 'IN_RIDE'].contains(status);
+
+  /// Over, one way or another.
+  bool get done => const ['CLOSED', 'CANCELLED', 'EXPIRED'].contains(status);
+
+  /// The fare the passenger actually owes: their own price if they named one.
+  int? get fareRwf => finalFareRwf ?? offeredFareRwf ?? quotedFareRwf;
+
+  factory PassengerRide.fromJson(Map<String, dynamic> j) => PassengerRide(
+        id: j['id'] as String? ?? '',
+        token: j['token'] as String?,
+        status: j['status'] as String? ?? 'SEARCHING',
+        kind: j['kind'] as String? ?? 'RIDE',
+        fareMode: j['fareMode'] as String? ?? 'METERED',
+        pickupLat: (j['pickupLat'] as num?)?.toDouble() ?? 0,
+        pickupLng: (j['pickupLng'] as num?)?.toDouble() ?? 0,
+        pickupName: j['pickupName'] as String?,
+        destLat: (j['destLat'] as num?)?.toDouble(),
+        destLng: (j['destLng'] as num?)?.toDouble(),
+        destName: j['destName'] as String?,
+        baseFareRwf: (j['baseFareRwf'] as num?)?.toInt() ?? 0,
+        perKmRwf: (j['perKmRwf'] as num?)?.toInt() ?? 0,
+        quotedFareRwf: (j['quotedFareRwf'] as num?)?.toInt(),
+        offeredFareRwf: (j['offeredFareRwf'] as num?)?.toInt(),
+        finalFareRwf: (j['finalFareRwf'] as num?)?.toInt(),
+        quotedDistanceM: (j['quotedDistanceM'] as num?)?.toDouble(),
+        riddenDistanceM: (j['riddenDistanceM'] as num?)?.toDouble() ?? 0,
+        paymentMethod: j['paymentMethod'] as String?,
+        paymentStatus: j['paymentStatus'] as String?,
+        payDue: j['payDue'] as bool? ?? false,
+        cashDeclaredAt: DateTime.tryParse(j['cashDeclaredAt'] as String? ?? ''),
+        rating: (j['rating'] as num?)?.toInt(),
+        searchRadiusKm: (j['searchRadiusKm'] as num?)?.toInt(),
+        searchSecondsLeft: (j['searchSecondsLeft'] as num?)?.toInt(),
+        cancelledBy: j['cancelledBy'] as String?,
+        cancelReason: j['cancelReason'] as String?,
+        driver: j['driver'] == null
+            ? null
+            : RideDriver.fromJson(j['driver'] as Map<String, dynamic>),
+      );
+}
