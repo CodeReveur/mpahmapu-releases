@@ -32,6 +32,7 @@ cleartext exception, which the debug manifest already allows.
 
 | Screen | What it does |
 | --- | --- |
+| Splash | The moto rides in along a scrolling road while the session is read off the device. All drawn, no images. |
 | Ask | The passenger side, and where the app opens. Map, pickup, an optional destination, a name and a phone number, then the motari on their way. No account, and the ride is remembered on the device so closing the app comes back to it. |
 | Register | A motari account from inside the app: details, the emailed code, and straight into work. |
 | Permissions | The first screen on every launch. Location is required and the way through is to allow it; notifications and sound are asked for beside it but never block the door. |
@@ -72,6 +73,13 @@ and come back to a ride already under way.
   needs a proxy and this does not. When nothing matches, the typed text becomes
   the destination and the passenger names their own price, because there is no
   route to measure.
+- **Every request carries a price.** The amount is never optional: where there
+  is a route to measure, the box opens with that price already in it and the
+  passenger may change it; where there is not, they name it outright. Below the
+  floor for that kind of trip, the button does not go.
+- **A pickup can be typed.** The device fix fills it in when there is one, but a
+  phone that never gets a fix still has a field to type into and a map to tap,
+  so nobody is stranded by a cold GPS.
 - **The icon is the app's own mark**, drawn from the same Material font Flutter
   ships: the orange rounded square and the black moto that the permission and
   sign-in screens show. `tool/make-icon.ps1` redraws every Android density, the

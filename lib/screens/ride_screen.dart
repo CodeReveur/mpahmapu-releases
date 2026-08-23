@@ -29,6 +29,9 @@ class RideScreen extends StatefulWidget {
   State<RideScreen> createState() => _RideScreenState();
 }
 
+/// Which of the two place fields the type-ahead is serving.
+enum _Field { pickup, dest }
+
 const _kigali = LatLng(-1.9441, 30.0619);
 const _tokenKey = 'passenger.ride.token';
 const _nameKey = 'passenger.name';
@@ -38,6 +41,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   final _map = MapController();
   final _name = TextEditingController();
   final _phone = TextEditingController();
+  final _pickupText = TextEditingController();
   final _destText = TextEditingController();
   final _fare = TextEditingController();
 
@@ -45,15 +49,25 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   bool _framed = false;
   StreamSubscription<Position>? _positions;
 
-  /// Where the motari is being asked to come. Defaults to the device, and a tap
-  /// on the map moves it.
+  /// Where the motari is being asked to come. The device fix sets it when there
+  /// is one; a tap on the map or a typed place moves it. On a phone that never
+  /// gets a fix, typing is the only way there is, which is why the field exists.
   LatLng? _pickup;
   String? _pickupName;
 
   Place? _dest;
+
+  /// Type-ahead runs for whichever field is being typed in. Two independent
+  /// searches would be two of everything, so one set of state serves both and
+  /// remembers which field it belongs to.
+  _Field _field = _Field.dest;
   List<Place> _found = const [];
   Timer? _searchDebounce;
   bool _searching = false;
+
+  /// True once the passenger has touched the amount, after which a new quote
+  /// stops overwriting what they typed.
+  bool _fareTouched = false;
 
   String _kind = 'RIDE';
   Quote? _quote;
@@ -84,6 +98,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     _searchDebounce?.cancel();
     _name.dispose();
     _phone.dispose();
+    _pickupText.dispose();
     _destText.dispose();
     _fare.dispose();
     super.dispose();
@@ -162,7 +177,17 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         kind: _kind,
       );
       final supply = await widget.api.supply(at.latitude, at.longitude, kind: _kind);
-      if (mounted) setState(() { _quote = quote; _supply = supply; });
+      if (!mounted) return;
+      setState(() {
+        _quote = quote;
+        _supply = supply;
+        // The fare is always the passenger's to name, but when there is a route
+        // to price, the app opens with that price already in the box rather
+        // than an empty one.
+        if (!_fareTouched && quote.quotedFareRwf != null) {
+          _fare.text = '${quote.quotedFareRwf}';
+        }
+      });
     } catch (_) {
       // A missing quote is not worth an error: the rate card shows instead.
     }
@@ -170,12 +195,18 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   /* ── typing a destination ─────────────────────────────────────────────── */
 
-  void _onDestTyped(String value) {
+  void _onTyped(_Field field, String value) {
     _searchDebounce?.cancel();
-    // Typing past a chosen place means they want a different one.
-    if (_dest != null && value.trim() != _dest!.label) {
-      setState(() => _dest = null);
-    }
+    setState(() {
+      _field = field;
+      // Typing past a chosen place means they want a different one.
+      if (field == _Field.dest && _dest != null && value.trim() != _dest!.label) {
+        _dest = null;
+      }
+      if (field == _Field.pickup && _pickupName != null && value.trim() != _pickupName) {
+        _pickupName = null;
+      }
+    });
     if (value.trim().length < 2) {
       setState(() { _found = const []; _searching = false; });
       return;
@@ -184,19 +215,28 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     _searchDebounce = Timer(const Duration(milliseconds: 350), () async {
       final results = await widget.api.searchPlaces(
         value,
-        lat: _pickup?.latitude,
-        lng: _pickup?.longitude,
+        // Bias to the device if there is one, otherwise to the pickup they have
+        // already set, otherwise not at all.
+        lat: _device?.latitude ?? _pickup?.latitude,
+        lng: _device?.longitude ?? _pickup?.longitude,
       );
       if (!mounted) return;
       setState(() { _found = results; _searching = false; });
     });
   }
 
-  void _pickDest(Place place) {
+  void _pick(Place place) {
     FocusScope.of(context).unfocus();
     setState(() {
-      _dest = place;
-      _destText.text = place.label;
+      if (_field == _Field.pickup) {
+        _pickup = LatLng(place.latitude, place.longitude);
+        _pickupName = place.label;
+        _pickupText.text = place.label;
+        _map.move(_pickup!, 16);
+      } else {
+        _dest = place;
+        _destText.text = place.label;
+      }
       _found = const [];
     });
     _refreshQuote();
@@ -211,15 +251,17 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   /* ── asking ───────────────────────────────────────────────────────────── */
 
   bool get _canRequest {
+    // Without a pickup there is nowhere to send anyone. A device fix gives one;
+    // so does typing a place or tapping the map.
     if (_busy || _pickup == null) return false;
     if (_name.text.trim().length < 2) return false;
     if (!RegExp(r'^07\d{8}$').hasMatch(_phone.text.trim())) return false;
-    // A parcel always needs somewhere to go, and a price to carry it.
+    // A parcel always needs somewhere to go.
     if (_kind == 'COURIER' && _destText.text.trim().isEmpty) return false;
-    if (_typedOnly || _kind == 'COURIER') {
-      final named = _namedFare;
-      if (named == null || named < _minFare) return false;
-    }
+    // Every request carries a price. A motari should never be asked to guess
+    // what a trip is worth, and a passenger should never be surprised by it.
+    final named = _namedFare;
+    if (named == null || named < _minFare) return false;
     return true;
   }
 
@@ -570,74 +612,42 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         ),
         const SizedBox(height: 12),
 
-        // From, and where to. The pickup is wherever the phone is unless the
-        // passenger moves it on the map.
-        _line(Brand.orange, t('ask.from'), _pickupName ?? t('ask.my_location')),
-        const SizedBox(height: 6),
-        TextField(
-          controller: _destText,
-          onChanged: _onDestTyped,
-          style: const TextStyle(color: Brand.text, fontSize: 13),
-          decoration: InputDecoration(
-            hintText: _kind == 'COURIER' ? t('ask.to_required') : t('ask.to'),
-            prefixIcon: const Icon(Icons.place_outlined, size: 15, color: Brand.green),
-            prefixIconConstraints: const BoxConstraints(minWidth: 34),
-            suffixIcon: _searching
-                ? const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: SizedBox(
-                      width: 13,
-                      height: 13,
-                      child: CircularProgressIndicator(strokeWidth: 1.6, color: Brand.dim),
-                    ),
-                  )
-                : _destText.text.isEmpty
-                    ? null
-                    : IconButton(
-                        icon: const Icon(Icons.close, size: 14, color: Brand.dim),
-                        onPressed: () {
-                          setState(() {
-                            _destText.clear();
-                            _dest = null;
-                            _found = const [];
-                          });
-                          _refreshQuote();
-                        },
-                      ),
-          ),
+        // Where from. A device fix fills this in on its own, but a phone that
+        // never gets one leaves the passenger with nothing to say, so the field
+        // is always here and always typeable.
+        _placeField(
+          field: _Field.pickup,
+          controller: _pickupText,
+          dot: Brand.orange,
+          hint: _device != null ? t('ask.my_location') : t('ask.from_required'),
         ),
+        if (_field == _Field.pickup && _found.isNotEmpty) ..._results(),
 
-        if (_found.isNotEmpty) ...[
-          const SizedBox(height: 6),
-          for (final place in _found)
-            GestureDetector(
-              onTap: () => _pickDest(place),
-              behavior: HitTestBehavior.opaque,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 7),
-                child: Row(
-                  children: [
-                    const Icon(Icons.north_east, size: 12, color: Brand.dim),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        place.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Brand.text, fontSize: 12.5),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
+        const SizedBox(height: 6),
+
+        // Where to.
+        _placeField(
+          field: _Field.dest,
+          controller: _destText,
+          dot: Brand.green,
+          hint: _kind == 'COURIER' ? t('ask.to_required') : t('ask.to'),
+        ),
+        if (_field == _Field.dest && _found.isNotEmpty) ..._results(),
 
         // Nothing on the map matched what they typed: it is still a place, and
-        // they say what the trip is worth.
+        // the price they name is the whole of what the motari is agreeing to.
         if (_typedOnly && !_searching) ...[
           const SizedBox(height: 4),
           Text(t('ask.not_on_map'), style: Brand.micro),
+        ],
+
+        // No fix, and nothing typed: say why the button is not going anywhere.
+        if (_pickup == null) ...[
+          const SizedBox(height: 6),
+          Text(
+            t('ask.where_are_you'),
+            style: const TextStyle(color: Brand.amber, fontSize: 11, height: 1.4),
+          ),
         ],
 
         const SizedBox(height: 10),
@@ -682,6 +692,100 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         Text(t('ask.no_account'), textAlign: TextAlign.center, style: Brand.micro),
       ];
 
+  /// A place field: type into it, pick from what comes back, or clear it. The
+  /// pickup and the destination are the same thing pointed at different state.
+  Widget _placeField({
+    required _Field field,
+    required TextEditingController controller,
+    required Color dot,
+    required String hint,
+  }) {
+    final busy = _searching && _field == field;
+    return TextField(
+      controller: controller,
+      onChanged: (v) => _onTyped(field, v),
+      onTap: () => setState(() {
+        // Moving between the fields should not leave the other one's results up.
+        if (_field != field) {
+          _field = field;
+          _found = const [];
+        }
+      }),
+      style: const TextStyle(color: Brand.text, fontSize: 13),
+      decoration: InputDecoration(
+        hintText: hint,
+        prefixIcon: Padding(
+          padding: const EdgeInsets.only(left: 13, right: 9),
+          child: Center(
+            widthFactor: 0,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
+            ),
+          ),
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 30),
+        suffixIcon: busy
+            ? const Padding(
+                padding: EdgeInsets.all(12),
+                child: SizedBox(
+                  width: 13,
+                  height: 13,
+                  child: CircularProgressIndicator(strokeWidth: 1.6, color: Brand.dim),
+                ),
+              )
+            : controller.text.isEmpty
+                ? null
+                : IconButton(
+                    icon: const Icon(Icons.close, size: 14, color: Brand.dim),
+                    onPressed: () {
+                      setState(() {
+                        controller.clear();
+                        _found = const [];
+                        if (field == _Field.dest) {
+                          _dest = null;
+                        } else {
+                          _pickupName = null;
+                          // Clearing the pickup falls back to the phone, if the
+                          // phone has anything to fall back to.
+                          final at = _device;
+                          _pickup = at == null ? null : LatLng(at.latitude, at.longitude);
+                        }
+                      });
+                      _refreshQuote();
+                    },
+                  ),
+      ),
+    );
+  }
+
+  List<Widget> _results() => [
+        const SizedBox(height: 6),
+        for (final place in _found)
+          GestureDetector(
+            onTap: () => _pick(place),
+            behavior: HitTestBehavior.opaque,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 7),
+              child: Row(
+                children: [
+                  const Icon(Icons.north_east, size: 12, color: Brand.dim),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      place.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Brand.text, fontSize: 12.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ];
+
   Widget _kindTab(String kind, IconData icon, String label) {
     final on = _kind == kind;
     return Expanded(
@@ -722,93 +826,75 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// What it will cost: a fixed price when there is a route to measure, the
-  /// rate card when there is not, and a box to name their own price when the
-  /// destination is only a name.
+  /// What the trip is worth, and the passenger says so on every request.
+  ///
+  /// When there is a route to measure, the box opens with that price already
+  /// in it and they may change it. When there is not — no destination, or one
+  /// the map has never heard of — the box is empty and the number they write
+  /// is the whole of what the motari is agreeing to.
   Widget _fareLine() {
     final quote = _quote;
-    final needsOwnPrice = _typedOnly || _kind == 'COURIER';
+    final min = _minFare;
+    final named = _namedFare;
+    final tooLittle = named != null && min > 0 && named < min;
+    final priced = _measurable && quote?.quotedFareRwf != null;
 
-    if (needsOwnPrice) {
-      final min = _minFare;
-      final named = _namedFare;
-      final tooLittle = named != null && min > 0 && named < min;
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(t('ask.name_your_price'), style: Brand.micro),
-          const SizedBox(height: 5),
-          TextField(
-            controller: _fare,
-            keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-            onChanged: (_) => setState(() {}),
-            style: const TextStyle(
-                color: Brand.text, fontSize: 15, fontWeight: FontWeight.w900),
-            decoration: InputDecoration(
-              hintText: min > 0 ? t('ask.at_least', {'amount': rwf(min)}) : 'RWF',
-            ),
-          ),
-          if (tooLittle) ...[
-            const SizedBox(height: 4),
-            Text(
-              t('ask.too_little', {'amount': rwf(min)}),
-              style: const TextStyle(color: Brand.amber, fontSize: 11),
-            ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(t('ask.name_your_price'), style: Brand.micro),
+            const Spacer(),
+            if (priced && quote!.distanceM != null)
+              Text(
+                '${km(quote.distanceM)} · ${t('ask.suggested')}',
+                style: Brand.micro,
+              )
+            else if (quote != null && !priced)
+              Text(
+                t('ask.meter_card', {
+                  'base': rwf(quote.baseFareRwf),
+                  'perKm': rwf(quote.perKmRwf),
+                }),
+                style: Brand.micro,
+              ),
           ],
-        ],
-      );
-    }
-
-    if (quote == null) return const SizedBox.shrink();
-
-    if (_measurable && quote.quotedFareRwf != null) {
-      return Row(
-        children: [
-          Text(
-            rwf(quote.quotedFareRwf),
-            style: const TextStyle(
-                color: Brand.orange, fontSize: 17, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 5),
+        TextField(
+          controller: _fare,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          onChanged: (_) => setState(() => _fareTouched = true),
+          style: const TextStyle(
+              color: Brand.orange, fontSize: 17, fontWeight: FontWeight.w900),
+          decoration: InputDecoration(
+            hintText: min > 0 ? t('ask.at_least', {'amount': rwf(min)}) : 'RWF',
+            prefixIcon: const Padding(
+              padding: EdgeInsets.only(left: 12, right: 8),
+              child: Center(
+                widthFactor: 0,
+                child: Text(
+                  'RWF',
+                  style: TextStyle(
+                      color: Brand.dim, fontSize: 11, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            prefixIconConstraints: const BoxConstraints(minWidth: 30),
           ),
-          const SizedBox(width: 8),
-          if (quote.distanceM != null)
-            Text(km(quote.distanceM), style: Brand.micro),
-          const Spacer(),
-          Text(t('ask.fixed_price'), style: Brand.micro),
+        ),
+        if (tooLittle) ...[
+          const SizedBox(height: 4),
+          Text(
+            t('ask.too_little', {'amount': rwf(min)}),
+            style: const TextStyle(color: Brand.amber, fontSize: 11),
+          ),
         ],
-      );
-    }
-
-    return Text(
-      t('ask.meter_card', {
-        'base': rwf(quote.baseFareRwf),
-        'perKm': rwf(quote.perKmRwf),
-      }),
-      style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.4),
+      ],
     );
   }
-
-  Widget _line(Color dot, String label, String value) => Row(
-        children: [
-          Container(
-            width: 7,
-            height: 7,
-            decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 8),
-          Text(label.toUpperCase(), style: Brand.micro),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.right,
-              style: const TextStyle(color: Brand.text, fontSize: 12),
-            ),
-          ),
-        ],
-      );
 
   /* ── watching the ride ────────────────────────────────────────────────── */
 

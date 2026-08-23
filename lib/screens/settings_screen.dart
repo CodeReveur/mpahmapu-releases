@@ -315,7 +315,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton.icon(
             onPressed: () async {
               await widget.api.signOut();
-              if (context.mounted) widget.onSignedOut();
+              if (!context.mounted) return;
+              // Swapping the app's home is not enough on its own: Settings and
+              // the working screen are still pushed above it, so a motari who
+              // logs out would keep looking at Settings. Clear the stack first,
+              // and the app comes back to where it opens for everyone.
+              Navigator.of(context).popUntil((route) => route.isFirst);
+              widget.onSignedOut();
             },
             icon: const Icon(Icons.logout, size: 15, color: Brand.red),
             label: Text(t('settings.log_out'),

@@ -7,6 +7,7 @@ import 'screens/drive_screen.dart';
 import 'screens/permission_gate.dart';
 import 'screens/ride_screen.dart';
 import 'screens/sign_in_screen.dart';
+import 'screens/splash_screen.dart';
 import 'theme.dart';
 
 /// Motari — the moto taxi app for MpahMapu.
@@ -45,6 +46,10 @@ class _MotariAppState extends State<MotariApp> {
   /// and the app remembers by keeping their session.
   bool _driving = false;
 
+  /// The opening animation has had its turn. Session restore is usually done
+  /// long before it is, so this is what actually decides when the app appears.
+  bool _shown = false;
+
   @override
   void initState() {
     super.initState();
@@ -71,6 +76,14 @@ class _MotariAppState extends State<MotariApp> {
   }
 
   Widget _home() {
+    // The moto rides in while the session is being read off the device.
+    if (!_shown) {
+      return SplashScreen(onDone: () {
+        if (mounted) setState(() => _shown = true);
+      });
+    }
+    // Reading the session takes milliseconds and the ride takes seconds, so
+    // this is only ever reached by a phone having a very bad day.
     if (!_ready) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator(color: Brand.orange)),

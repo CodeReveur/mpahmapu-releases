@@ -464,6 +464,8 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         onSignedOut: widget.onSignedOut,
       ),
     ));
-    _refresh();
+    // Logging out clears the session on the way back through here; there is
+    // nothing left to ask the driver API for.
+    if (mounted && widget.api.signedIn) _refresh();
   }
 }
