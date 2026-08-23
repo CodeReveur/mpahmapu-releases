@@ -324,6 +324,32 @@ class Api {
     }
   }
 
+  /// The name of a point, so a pickup taken from the phone reads as a place
+  /// rather than a pair of numbers. Null when the lookup finds nothing, which
+  /// the caller treats as "my location" and carries on.
+  Future<String?> nameOfPlace(double lat, double lng) async {
+    final uri = Uri.https('nominatim.openstreetmap.org', '/reverse', {
+      'format': 'jsonv2',
+      'lat': '$lat',
+      'lon': '$lng',
+      'zoom': '17',
+      'addressdetails': '1',
+    });
+    try {
+      final res = await http.get(uri, headers: {
+        'User-Agent': 'MpahMapu-Motari/1.0 (https://www.mpahmapu.com; support@mpahmapu.com)',
+        'Accept-Language': 'en',
+      }).timeout(const Duration(seconds: 6));
+      if (res.statusCode >= 400) return null;
+      final j = jsonDecode(res.body);
+      if (j is! Map<String, dynamic>) return null;
+      final full = (j['display_name'] as String?)?.trim() ?? '';
+      if (full.isEmpty) return null;
+      return full.split(',').take(2).join(',').trim();
+    } catch (_) {
+      return null;
+    }
+  }
   // ── The working screen ────────────────────────────────────────────────────
 
   Future<MotariState> state() async =>

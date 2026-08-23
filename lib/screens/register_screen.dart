@@ -8,9 +8,12 @@ import '../widgets/language_button.dart';
 
 /// Opening a motari account without leaving the app.
 ///
-/// Everything a new motari needs happens here: the account, the emailed code
-/// that proves the address, and the sign in that follows. The moto itself is
-/// registered on the working screen, where the plate is asked for once.
+/// It asks for exactly what the website's own registration asks for, in the
+/// same order and with the same rules, because both write to the same account:
+/// a full legal name, the plate, the moto, a phone, an email and a password.
+/// The moto is saved the moment the email is verified, so a motari who
+/// registers here lands ready to work rather than facing the same questions
+/// again on the working screen.
 class RegisterScreen extends StatefulWidget {
   final Api api;
   final VoidCallback onRegistered;
@@ -22,6 +25,8 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _name = TextEditingController();
+  final _plate = TextEditingController();
+  final _brand = TextEditingController();
   final _email = TextEditingController();
   final _phone = TextEditingController();
   final _password = TextEditingController();
@@ -36,6 +41,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _name.dispose();
+    _plate.dispose();
+    _brand.dispose();
     _email.dispose();
     _phone.dispose();
     _password.dispose();
@@ -45,7 +52,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   bool get _canCreate =>
       !_busy &&
-      _name.text.trim().length >= 2 &&
+      // Two words, as the website asks: a legal name is not one word.
+      _name.text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length >= 2 &&
+      _plate.text.trim().length >= 4 &&
       RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(_email.text.trim()) &&
       RegExp(r'^07\d{8}$').hasMatch(_phone.text.trim()) &&
       _password.text.length >= 8;
@@ -78,16 +87,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
         });
       });
 
-  /// The code proves the address; the sign in that follows is what actually
-  /// puts a session on the device.
+  /// The code proves the address; the sign in that follows puts a session on
+  /// the device; and the moto is written to the account before anyone is sent
+  /// to the working screen, so it opens ready rather than asking again.
   Future<void> _verify() => _run(() async {
         await widget.api.verifyEmail(_email.text.trim(), _code.text.trim());
         await widget.api.signIn(_email.text.trim(), _password.text);
-        if (widget.api.signedIn) {
-          widget.onRegistered();
-        } else {
+        if (!widget.api.signedIn) {
           setState(() => _error = t('register.signin_yourself'));
+          return;
         }
+        await widget.api.saveProfile(
+          plateNumber: _plate.text.trim(),
+          brandModel: _brand.text.trim().isEmpty ? null : _brand.text.trim(),
+          legalName: _name.text.trim(),
+        );
+        widget.onRegistered();
       });
 
   @override
@@ -135,6 +150,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     onChanged: (_) => setState(() {}),
                     style: const TextStyle(color: Brand.text, fontSize: 13),
                     decoration: InputDecoration(hintText: t('register.name_hint')),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Text(t('register.plate'), style: Brand.micro),
+                  const SizedBox(height: 5),
+                  TextField(
+                    controller: _plate,
+                    textCapitalization: TextCapitalization.characters,
+                    onChanged: (_) => setState(() {}),
+                    style: const TextStyle(color: Brand.text, fontSize: 13),
+                    decoration: InputDecoration(hintText: t('panel.plate')),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Text(t('register.brand'), style: Brand.micro),
+                  const SizedBox(height: 5),
+                  TextField(
+                    controller: _brand,
+                    onChanged: (_) => setState(() {}),
+                    style: const TextStyle(color: Brand.text, fontSize: 13),
+                    decoration: InputDecoration(hintText: t('panel.brand')),
                   ),
                   const SizedBox(height: 12),
 
@@ -234,7 +270,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                 const SizedBox(height: 14),
                 Text(
-                  t('register.moto_next'),
+                  t('register.same_as_web'),
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: Brand.dim, fontSize: 11, height: 1.4),
                 ),

@@ -123,7 +123,7 @@ class _MoneyScreenState extends State<MoneyScreen> {
                       Text(t('money.no_trips'),
                           style: const TextStyle(color: Brand.dim, fontSize: 12))
                     else
-                      ...h.rides.map(_rideRow),
+                      ..._groupedTrips(h.rides),
                   ],
                 ],
               ),
@@ -180,6 +180,96 @@ class _MoneyScreenState extends State<MoneyScreen> {
     );
   }
 
+  /// Trips under the period they happened in. A motari reading this wants
+  /// today first and last year last, and wants to find a particular trip by
+  /// remembering roughly when it was.
+  List<Widget> _groupedTrips(List<Ride> rides) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    // The week runs from Monday, which is how a working week is counted here.
+    final weekStart = today.subtract(Duration(days: today.weekday - 1));
+    final monthStart = DateTime(now.year, now.month);
+    final lastMonthStart = DateTime(now.year, now.month - 1);
+    final yearStart = DateTime(now.year);
+    final lastYearStart = DateTime(now.year - 1);
+
+    // Ordered, so a trip always lands in the first bucket it fits and the
+    // sections read from most recent to least.
+    final buckets = <String, List<Ride>>{
+      'money.today': [],
+      'money.yesterday': [],
+      'money.this_week': [],
+      'money.this_month': [],
+      'money.last_month': [],
+      'money.this_year': [],
+      'money.last_year': [],
+      'money.earlier': [],
+    };
+
+    for (final r in rides) {
+      final at = r.requestedAt?.toLocal();
+      // A trip with no time still belongs somewhere it can be found.
+      if (at == null) {
+        buckets['money.earlier']!.add(r);
+        continue;
+      }
+      final day = DateTime(at.year, at.month, at.day);
+      final key = !day.isBefore(today)
+          ? 'money.today'
+          : !day.isBefore(yesterday)
+              ? 'money.yesterday'
+              : !day.isBefore(weekStart)
+                  ? 'money.this_week'
+                  : !day.isBefore(monthStart)
+                      ? 'money.this_month'
+                      : !day.isBefore(lastMonthStart)
+                          ? 'money.last_month'
+                          : !day.isBefore(yearStart)
+                              ? 'money.this_year'
+                              : !day.isBefore(lastYearStart)
+                                  ? 'money.last_year'
+                                  : 'money.earlier';
+      buckets[key]!.add(r);
+    }
+
+    final out = <Widget>[];
+    for (final entry in buckets.entries) {
+      if (entry.value.isEmpty) continue;
+      out.add(Padding(
+        padding: EdgeInsets.only(top: out.isEmpty ? 0 : 6, bottom: 7),
+        child: Row(
+          children: [
+            Text(t(entry.key).toUpperCase(), style: Brand.micro),
+            const SizedBox(width: 8),
+            const Expanded(child: Divider(color: Brand.line, height: 1)),
+            const SizedBox(width: 8),
+            Text('${entry.value.length}', style: Brand.micro),
+          ],
+        ),
+      ));
+      out.addAll(entry.value.map(_rideRow));
+    }
+    return out;
+  }
+
+  /// When a trip was, written the way someone would say it. Today and yesterday
+  /// have their own heading above, so those rows only need the time.
+  String _when(DateTime? at) {
+    if (at == null) return '';
+    final local = at.toLocal();
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(local.year, local.month, local.day);
+    final time =
+        '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
+
+    if (!day.isBefore(today.subtract(const Duration(days: 1)))) return time;
+    final date = '${local.day} ${monthShort(local.month)}';
+    // The year only earns its place once it stops being this one.
+    return local.year == now.year ? '$date, $time' : '$date ${local.year}, $time';
+  }
+
   Widget _rideRow(Ride r) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Panel(
@@ -209,6 +299,10 @@ class _MoneyScreenState extends State<MoneyScreen> {
                       '${r.destName != null ? ' → ${r.destName}' : ''}',
                       style: const TextStyle(color: Brand.muted, fontSize: 10.5, height: 1.4),
                     ),
+                    if (r.requestedAt != null) ...[
+                      const SizedBox(height: 3),
+                      Text(_when(r.requestedAt), style: Brand.micro),
+                    ],
                   ],
                 ),
               ),
