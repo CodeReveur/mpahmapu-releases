@@ -20,7 +20,11 @@ dependencies:
   # The offer that rings until it is answered.
   audioplayers: ^6.1.0
   url_launcher: ^6.3.1
-  permission_handler: ^13.0.1
+  # Pinned below 13: newer builds compile against Android SDK 37, which Google
+  # now ships as "android-37.0" and this Gradle plugin cannot name. The app only
+  # asks it for the notification permission and the settings screen, which this
+  # line has had for years.
+  permission_handler: ^12.0.3
   flutter_local_notifications: ^22.3.0
 
 dev_dependencies:
