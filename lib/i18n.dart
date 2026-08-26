@@ -73,6 +73,22 @@ String t(String key, [Map<String, Object?>? vars]) {
   return text;
 }
 
+/// Translate into a named language rather than the one on screen.
+///
+/// Only the spoken turns need this. A phone with no Kinyarwanda voice still
+/// has to say something, so the navigator picks a language the phone can
+/// actually pronounce and asks for the words in that one.
+String tIn(String lang, String key, [Map<String, Object?>? vars]) {
+  final table = _catalogue[lang] ?? const {};
+  var text = table[key] ?? _catalogue[Lang.fallback]![key] ?? key;
+  if (vars != null) {
+    vars.forEach((name, value) {
+      text = text.replaceAll('{$name}', '${value ?? ''}');
+    });
+  }
+  return text;
+}
+
 /// Every word the app says, in every language it says it in. Kept as one map
 /// rather than four files so a new string cannot be added in English alone
 /// without the gap being obvious.
@@ -155,6 +171,37 @@ const Map<String, Map<String, String>> _catalogue = {
     'drive.allow_location': 'Allow location so passengers can find you.',
     'drive.online': 'ONLINE',
     'drive.offline': 'OFFLINE',
+
+    'map.satellite': 'SATELLITE',
+    'map.streets': 'STREETS',
+    'nav.sound_on': 'VOICE',
+    'nav.sound_off': 'MUTED',
+    'nav.to_pickup': 'To the pickup',
+    'nav.to_dest': 'To the destination',
+    'nav.no_route': 'No route right now. The pin still shows where to go.',
+    'nav.turn_left': 'turn left',
+    'nav.turn_right': 'turn right',
+    'nav.slight_left': 'turn slightly left',
+    'nav.slight_right': 'turn slightly right',
+    'nav.sharp_left': 'turn sharply left',
+    'nav.sharp_right': 'turn sharply right',
+    'nav.uturn': 'make a U turn',
+    'nav.straight': 'continue straight',
+    'nav.go_on': 'continue',
+    'nav.onto': ' onto {road}',
+    'nav.depart': 'Start heading toward your destination',
+    'nav.depart_on': 'Head out on {road}',
+    'nav.arrive': 'You have arrived',
+    'nav.roundabout': 'At the roundabout, take the exit{onto}',
+    'nav.merge': 'Merge{onto}',
+    'nav.keep_left': 'Keep left{onto}',
+    'nav.keep_right': 'Keep right{onto}',
+    'nav.keep_straight': 'Keep straight{onto}',
+    'nav.ramp': 'Take the ramp{onto}',
+    'nav.exit_ramp': 'Take the exit{onto}',
+    'nav.continue_onto': 'Continue onto {road}',
+    'nav.continue_plain': 'Continue{onto}',
+    'nav.in_metres': 'In {m} metres, {what}',
 
     // The working sheet.
     'panel.on_ride': 'On a ride',
@@ -424,6 +471,37 @@ const Map<String, Map<String, String>> _catalogue = {
     'drive.online': 'EN LIGNE',
     'drive.offline': 'HORS LIGNE',
 
+    'map.satellite': 'SATELLITE',
+    'map.streets': 'PLAN',
+    'nav.sound_on': 'VOIX',
+    'nav.sound_off': 'MUET',
+    'nav.to_pickup': 'Vers le ramassage',
+    'nav.to_dest': 'Vers la destination',
+    'nav.no_route': 'Pas d\u2019itinéraire pour le moment. Le repère montre toujours où aller.',
+    'nav.turn_left': 'tournez à gauche',
+    'nav.turn_right': 'tournez à droite',
+    'nav.slight_left': 'tournez légèrement à gauche',
+    'nav.slight_right': 'tournez légèrement à droite',
+    'nav.sharp_left': 'tournez franchement à gauche',
+    'nav.sharp_right': 'tournez franchement à droite',
+    'nav.uturn': 'faites demi tour',
+    'nav.straight': 'continuez tout droit',
+    'nav.go_on': 'continuez',
+    'nav.onto': ' sur {road}',
+    'nav.depart': 'Mettez vous en route vers votre destination',
+    'nav.depart_on': 'Partez sur {road}',
+    'nav.arrive': 'Vous êtes arrivé',
+    'nav.roundabout': 'Au rond point, prenez la sortie{onto}',
+    'nav.merge': 'Insérez vous{onto}',
+    'nav.keep_left': 'Restez à gauche{onto}',
+    'nav.keep_right': 'Restez à droite{onto}',
+    'nav.keep_straight': 'Restez tout droit{onto}',
+    'nav.ramp': 'Prenez la bretelle{onto}',
+    'nav.exit_ramp': 'Prenez la sortie{onto}',
+    'nav.continue_onto': 'Continuez sur {road}',
+    'nav.continue_plain': 'Continuez{onto}',
+    'nav.in_metres': 'Dans {m} mètres, {what}',
+
     'panel.on_ride': 'En course',
     'panel.waiting_nearby': '{count} en attente près de vous',
     'panel.offline': 'Hors ligne',
@@ -685,6 +763,37 @@ const Map<String, Map<String, String>> _catalogue = {
     'drive.online': 'URI KU MURONGO',
     'drive.offline': 'URI HANZE',
 
+    'map.satellite': 'SATELITE',
+    'map.streets': 'IMIHANDA',
+    'nav.sound_on': 'IJWI',
+    'nav.sound_off': 'NTA JWI',
+    'nav.to_pickup': 'Aho ufatira umugenzi',
+    'nav.to_dest': 'Aho mugana',
+    'nav.no_route': 'Nta nzira iboneka ubu. Akamenyetso karacyerekana aho ujya.',
+    'nav.turn_left': 'kata ibumoso',
+    'nav.turn_right': 'kata iburyo',
+    'nav.slight_left': 'unamire gato ibumoso',
+    'nav.slight_right': 'unamire gato iburyo',
+    'nav.sharp_left': 'kata cyane ibumoso',
+    'nav.sharp_right': 'kata cyane iburyo',
+    'nav.uturn': 'garuka inyuma',
+    'nav.straight': 'komeza imbere',
+    'nav.go_on': 'komeza',
+    'nav.onto': ' ujye mu {road}',
+    'nav.depart': 'Tangira werekeze aho ujya',
+    'nav.depart_on': 'Tangira mu {road}',
+    'nav.arrive': 'Ugeze aho ujya',
+    'nav.roundabout': 'Ku ruziga, sohoka{onto}',
+    'nav.merge': 'Injira mu muhanda{onto}',
+    'nav.keep_left': 'Guma ibumoso{onto}',
+    'nav.keep_right': 'Guma iburyo{onto}',
+    'nav.keep_straight': 'Guma imbere{onto}',
+    'nav.ramp': 'Fata inzira yinjira{onto}',
+    'nav.exit_ramp': 'Fata inzira isohoka{onto}',
+    'nav.continue_onto': 'Komeza mu {road}',
+    'nav.continue_plain': 'Komeza{onto}',
+    'nav.in_metres': 'Nyuma ya metero {m}, {what}',
+
     'panel.on_ride': 'Uri mu rugendo',
     'panel.waiting_nearby': '{count} bategereje hafi',
     'panel.offline': 'Uri hanze',
@@ -945,6 +1054,37 @@ const Map<String, Map<String, String>> _catalogue = {
     'drive.allow_location': 'Ruhusu mahali ulipo ili abiria wakupate.',
     'drive.online': 'MTANDAONI',
     'drive.offline': 'NJE',
+
+    'map.satellite': 'SATELAITI',
+    'map.streets': 'BARABARA',
+    'nav.sound_on': 'SAUTI',
+    'nav.sound_off': 'KIMYA',
+    'nav.to_pickup': 'Kwenda kumchukua',
+    'nav.to_dest': 'Kwenda mwisho',
+    'nav.no_route': 'Hakuna njia kwa sasa. Alama bado inaonyesha unakoenda.',
+    'nav.turn_left': 'geuka kushoto',
+    'nav.turn_right': 'geuka kulia',
+    'nav.slight_left': 'geuka kidogo kushoto',
+    'nav.slight_right': 'geuka kidogo kulia',
+    'nav.sharp_left': 'geuka kwa kasi kushoto',
+    'nav.sharp_right': 'geuka kwa kasi kulia',
+    'nav.uturn': 'rudi nyuma',
+    'nav.straight': 'endelea moja kwa moja',
+    'nav.go_on': 'endelea',
+    'nav.onto': ' hadi {road}',
+    'nav.depart': 'Anza kuelekea unakoenda',
+    'nav.depart_on': 'Anzia {road}',
+    'nav.arrive': 'Umefika',
+    'nav.roundabout': 'Kwenye kipilefti, toka{onto}',
+    'nav.merge': 'Ungana na barabara{onto}',
+    'nav.keep_left': 'Baki kushoto{onto}',
+    'nav.keep_right': 'Baki kulia{onto}',
+    'nav.keep_straight': 'Baki moja kwa moja{onto}',
+    'nav.ramp': 'Chukua njia ya kuingia{onto}',
+    'nav.exit_ramp': 'Chukua njia ya kutoka{onto}',
+    'nav.continue_onto': 'Endelea hadi {road}',
+    'nav.continue_plain': 'Endelea{onto}',
+    'nav.in_metres': 'Baada ya mita {m}, {what}',
 
     'panel.on_ride': 'Upo safarini',
     'panel.waiting_nearby': '{count} wanasubiri karibu',

@@ -10,9 +10,12 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../i18n.dart';
 import '../models.dart';
+import '../navigator.dart';
 import '../permissions.dart';
+import '../routing.dart' as nav;
 import '../theme.dart';
 import '../widgets/fee_banner.dart';
+import '../widgets/map_layers.dart';
 import '../widgets/offer_card.dart';
 import '../widgets/ride_panel.dart';
 import 'money_screen.dart';
@@ -39,6 +42,21 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
 
   final _map = MapController();
   final _ring = AudioPlayer();
+  final _nav = TurnByTurn();
+
+  /// Streets by default here, unlike the passenger side: a motari is following
+  /// a road, and a road is easier to follow drawn than photographed. Satellite
+  /// is one tap away for the last hundred metres, where a compound gate or a
+  /// track off the tarmac is the thing they are actually looking for.
+  Basemap _basemap = Basemap.streets;
+
+  /// The road to the next thing, and what it was worked out from. Both are
+  /// remembered so a route is refetched when it stops being about this ride
+  /// rather than on a timer.
+  nav.Route? _route;
+  LatLng? _routeTo;
+  LatLng? _routedFrom;
+  bool _routing = false;
 
   MotariState? _state;
   Position? _position;
@@ -80,6 +98,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     _tick?.cancel();
     _positions?.cancel();
     _ring.dispose();
+    _nav.stop();
     Permissions.clearOffer(_offerNotificationId);
     super.dispose();
   }
@@ -120,7 +139,71 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         _framed = true;
         _map.move(LatLng(p.latitude, p.longitude), 16);
       }
+      _follow(LatLng(p.latitude, p.longitude));
     });
+  }
+
+  /* ── the way there ─────────────────────────────────────────────────────── */
+
+  /// Where this ride is going next: the passenger until they are aboard, the
+  /// destination once they are. A parcel counts as aboard from the moment it
+  /// was collected.
+  LatLng? get _heading {
+    final ride = _ride;
+    if (ride == null) return null;
+    final aboard = ride.status == 'IN_RIDE' || ride.pickedUpAt != null;
+    if (aboard && ride.destLat != null && ride.destLng != null) {
+      return LatLng(ride.destLat!, ride.destLng!);
+    }
+    return LatLng(ride.pickupLat, ride.pickupLng);
+  }
+
+  /// A new fix arrived. Keep the drawn road honest, and say the turn if this
+  /// position has earned it.
+  Future<void> _follow(LatLng at) async {
+    final to = _heading;
+
+    // No ride, or it ended: drop the line rather than leave a stale one drawn.
+    if (to == null) {
+      if (_route != null || _nav.next != null) {
+        _nav.reset();
+        if (mounted) {
+          setState(() {
+            _route = null;
+            _routeTo = null;
+            _routedFrom = null;
+          });
+        }
+      }
+      return;
+    }
+
+    // Worth asking again when the destination changed, when there is no road
+    // yet, or when we have moved far enough that the old one may be wrong,
+    // which is also what happens after a missed turn.
+    final movedFar = _routedFrom == null || nav.metresBetween(_routedFrom!, at) > 120;
+    final newTarget = _routeTo == null || nav.metresBetween(_routeTo!, to) > 30;
+    if (!_routing && (newTarget || _route == null || movedFar)) {
+      _routing = true;
+      if (newTarget) _nav.reset();
+      final found = await nav.Routing.between(at, to);
+      _routing = false;
+      if (!mounted) return;
+      // A lookup that failed leaves the last good road on screen: an old line
+      // is better guidance than none, and the pin has not moved.
+      if (found != null) {
+        setState(() {
+          _route = found;
+          _routeTo = to;
+          _routedFrom = at;
+        });
+      } else if (newTarget) {
+        setState(() => _routeTo = to);
+      }
+    }
+
+    await _nav.update(_route, at);
+    if (mounted) setState(() {});
   }
 
   Future<void> _sendHeartbeat() async {
@@ -308,10 +391,19 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
               interactionOptions: const InteractionOptions(flags: InteractiveFlag.all),
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'rw.mpahmapu.motari',
-              ),
+              basemapTiles(_basemap),
+              if (_route != null)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _route!.line,
+                      strokeWidth: 5,
+                      color: Brand.orange,
+                      borderStrokeWidth: 2,
+                      borderColor: Brand.black,
+                    ),
+                  ],
+                ),
               MarkerLayer(markers: _markers()),
             ],
           ),
@@ -337,6 +429,25 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                       _onlineButton(),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      MapCredit(map: _basemap),
+                      const Spacer(),
+                      if (ride != null) ...[
+                        _voiceButton(),
+                        const SizedBox(width: 6),
+                      ],
+                      BasemapButton(
+                        value: _basemap,
+                        onChanged: (m) => setState(() => _basemap = m),
+                      ),
+                    ],
+                  ),
+                  if (ride != null) ...[
+                    const SizedBox(height: 8),
+                    _turnBanner(),
+                  ],
                   if (showFee) ...[
                     const SizedBox(height: 8),
                     FeeBanner(
@@ -419,6 +530,133 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
           ],
         ),
       );
+
+  /// The next manoeuvre, written out. It says the same words the voice says,
+  /// so a motari who missed the sound can read it at the next stop, and one
+  /// who heard it has the distance in front of them.
+  Widget _turnBanner() {
+    final turn = _nav.next;
+    final where = _heading;
+
+    // Between accepting and the first route coming back there is nothing to
+    // draw. Say what is happening rather than leave a gap.
+    if (turn == null) {
+      final ride = _ride!;
+      final aboard = ride.status == 'IN_RIDE' || ride.pickedUpAt != null;
+      return _navCard(
+        icon: Icons.navigation_outlined,
+        headline: aboard ? t('nav.to_dest') : t('nav.to_pickup'),
+        detail: _route == null && where != null && !_routing ? t('nav.no_route') : null,
+      );
+    }
+
+    return _navCard(
+      icon: _turnIcon(turn.step),
+      headline: turn.step.spoken,
+      detail: turn.metresAway >= 1000
+          ? km(turn.metresAway)
+          : '${(turn.metresAway / 10).round() * 10} m',
+    );
+  }
+
+  Widget _navCard({required IconData icon, required String headline, String? detail}) =>
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+        decoration: BoxDecoration(
+          color: Brand.black.withValues(alpha: 0.94),
+          border: Border.all(color: Brand.line),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, size: 21, color: Brand.orange),
+            const SizedBox(width: 11),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    headline,
+                    style: const TextStyle(
+                      color: Brand.text,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
+                      height: 1.25,
+                    ),
+                  ),
+                  if (detail != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      detail,
+                      style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.35),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+
+  /// An arrow that matches the words, so the shape is readable at a glance
+  /// without reading anything.
+  IconData _turnIcon(nav.RouteStep step) {
+    if (step.type == 'arrive') return Icons.flag;
+    if (step.type == 'roundabout' || step.type == 'rotary') return Icons.roundabout_right;
+    final mod = step.modifier.toLowerCase();
+    if (mod.contains('uturn')) return Icons.u_turn_left;
+    if (mod.contains('sharp') && mod.contains('left')) return Icons.turn_sharp_left;
+    if (mod.contains('sharp') && mod.contains('right')) return Icons.turn_sharp_right;
+    if (mod.contains('slight') && mod.contains('left')) return Icons.turn_slight_left;
+    if (mod.contains('slight') && mod.contains('right')) return Icons.turn_slight_right;
+    if (mod.contains('left')) return Icons.turn_left;
+    if (mod.contains('right')) return Icons.turn_right;
+    return Icons.straight;
+  }
+
+  /// Silence, for a motari who would rather not be spoken to. It only stops the
+  /// voice: the banner keeps showing the turn either way.
+  Widget _voiceButton() {
+    final on = !_nav.muted;
+    return GestureDetector(
+      onTap: () {
+        setState(() => _nav.muted = on);
+        if (!on) {
+          // Turned back on: pick the voice up again in case the language
+          // changed while it was silent.
+          _nav.relearnVoice();
+        } else {
+          _nav.stop();
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+        decoration: BoxDecoration(
+          color: Brand.black.withValues(alpha: 0.94),
+          border: Border.all(color: on ? Brand.orange : Brand.line),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(on ? Icons.volume_up : Icons.volume_off,
+                size: 12, color: on ? Brand.orange : Brand.muted),
+            const SizedBox(width: 5),
+            Text(
+              on ? t('nav.sound_on') : t('nav.sound_off'),
+              style: TextStyle(
+                color: on ? Brand.text : Brand.muted,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.9,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _onlineButton() {
     final online = _online;

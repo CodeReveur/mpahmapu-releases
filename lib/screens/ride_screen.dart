@@ -14,6 +14,7 @@ import '../models.dart';
 import '../permissions.dart';
 import '../theme.dart';
 import '../widgets/language_button.dart';
+import '../widgets/map_layers.dart';
 
 /// Asking for a motari, and watching one arrive.
 ///
@@ -88,6 +89,11 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   /// Looking up the name of the phone's own fix.
   bool _locating = false;
+
+  /// Streets or satellite. A passenger describing where they are standing has
+  /// an easier time on satellite — a roof, a yard, the shape of a junction —
+  /// so it is one tap away rather than buried.
+  Basemap _basemap = Basemap.satellite;
 
   String _kind = 'RIDE';
   Quote? _quote;
@@ -468,10 +474,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                   : null,
             ),
             children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'rw.mpahmapu.motari',
-              ),
+              basemapTiles(_basemap),
               MarkerLayer(markers: _markers()),
             ],
           ),
@@ -483,6 +486,11 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                 children: [
                   if (_supply != null && _ride == null) _supplyChip(),
                   const Spacer(),
+                  BasemapButton(
+                    value: _basemap,
+                    onChanged: (m) => setState(() => _basemap = m),
+                  ),
+                  const SizedBox(width: 8),
                   const LanguageButton(),
                   const SizedBox(width: 8),
                   _driveButton(),
@@ -494,6 +502,13 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           Align(
             alignment: Alignment.bottomCenter,
             child: _sheet(),
+          ),
+
+          // Above the sheet, so it is never buried under it.
+          Positioned(
+            left: 8,
+            bottom: MediaQuery.of(context).size.height * 0.74 + 6,
+            child: MapCredit(map: _basemap),
           ),
         ],
       ),

@@ -74,5 +74,11 @@
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
+        <!-- Without this the phone's speech engine is invisible to us from
+             Android 11 on, and the spoken turns fail silently: no error, no
+             voice, a motari looking at the screen at a junction. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>
