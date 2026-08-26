@@ -131,9 +131,19 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         distanceFilter: 5,
       ),
     ).listen((p) {
-      // A kilometre-scale fix is a network guess, not GPS: never draw it.
-      if (p.accuracy > 5000) return;
       if (!mounted) return;
+
+      /*
+       * Every reading is drawn; not every reading is broadcast.
+       *
+       * Anything worse than five kilometres used to be dropped outright, which
+       * left the motari looking at a map with no moto on it and no way to tell
+       * whether the app or the sky was at fault. The distinction that matters
+       * is not whether to show the fix but whether to send it: a coarse
+       * position in a heartbeat tells a waiting passenger there is a moto
+       * somewhere inside thirty kilometres of them, which is worse for both of
+       * them than saying nothing at all.
+       */
       setState(() => _position = p);
       if (!_framed) {
         _framed = true;
@@ -206,9 +216,22 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     if (mounted) setState(() {});
   }
 
+  /// How tight a fix has to be before it is worth telling passengers about.
+  ///
+  /// Generous: a motari on a phone in a street beats this by an order of
+  /// magnitude, and the ones who do not are indoors, where the position is a
+  /// guess at the neighbourhood rather than the corner they are standing on.
+  static const double _usableFixM = 500;
+
+  /// Whether the last fix is good enough to dispatch on.
+  bool get _fixUsable {
+    final p = _position;
+    return p != null && p.accuracy <= _usableFixM;
+  }
+
   Future<void> _sendHeartbeat() async {
     final p = _position;
-    if (p == null || !_online) return;
+    if (p == null || !_online || !_fixUsable) return;
     try {
       final next = await widget.api.heartbeat(p.latitude, p.longitude);
       if (mounted) _apply(next);
@@ -424,6 +447,11 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                       if (_position == null) ...[
                         const SizedBox(width: 6),
                         Flexible(child: _chip(icon: Icons.gps_not_fixed, label: t("gate.finding_you"))),
+                      ] else if (!_fixUsable) ...[
+                        // The one thing that will keep a motari online all day
+                        // without a single offer, said out loud.
+                        const SizedBox(width: 6),
+                        Flexible(child: _chip(icon: Icons.gps_not_fixed, label: t('drive.gps_coarse'))),
                       ],
                       const Spacer(),
                       _onlineButton(),

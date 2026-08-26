@@ -170,6 +170,7 @@ const Map<String, Map<String, String>> _catalogue = {
     // The map screen.
     'drive.allow_location': 'Allow location so passengers can find you.',
     'drive.online': 'ONLINE',
+    'drive.gps_coarse': 'LOCATION TOO ROUGH',
     'drive.offline': 'OFFLINE',
 
     'map.satellite': 'SATELLITE',
@@ -469,6 +470,7 @@ const Map<String, Map<String, String>> _catalogue = {
 
     'drive.allow_location': 'Autorisez la localisation pour que les passagers vous trouvent.',
     'drive.online': 'EN LIGNE',
+    'drive.gps_coarse': 'POSITION TROP VAGUE',
     'drive.offline': 'HORS LIGNE',
 
     'map.satellite': 'SATELLITE',
@@ -761,6 +763,7 @@ const Map<String, Map<String, String>> _catalogue = {
 
     'drive.allow_location': 'Emera aho uri kugira ngo abagenzi bakubone.',
     'drive.online': 'URI KU MURONGO',
+    'drive.gps_coarse': 'AHO URI NTIHAZWI NEZA',
     'drive.offline': 'URI HANZE',
 
     'map.satellite': 'SATELITE',
@@ -1053,6 +1056,7 @@ const Map<String, Map<String, String>> _catalogue = {
 
     'drive.allow_location': 'Ruhusu mahali ulipo ili abiria wakupate.',
     'drive.online': 'MTANDAONI',
+    'drive.gps_coarse': 'MAHALI HAPAJULIKANI VIZURI',
     'drive.offline': 'NJE',
 
     'map.satellite': 'SATELAITI',

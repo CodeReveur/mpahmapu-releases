@@ -175,16 +175,57 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         distanceFilter: 5,
       ),
     ).listen((p) {
-      // A kilometre-scale fix is a network guess, not GPS: never stand on it.
-      if (p.accuracy > 5000 || !mounted) return;
-      // The fix is kept, but it is not the answer until the passenger says so:
-      // a silently filled pickup is one nobody checked.
+      if (!mounted) return;
+
+      /*
+       * Every reading is kept, however coarse.
+       *
+       * Anything worse than five kilometres used to be dropped as "a network
+       * guess, not GPS", which is true, and throwing it away meant the map
+       * never centred and the passenger never saw themselves on it. A coarse
+       * fix drawn inside its accuracy ring is honest. A coarse fix discarded
+       * looks like a broken app.
+       */
       setState(() => _device = p);
       if (!_framed) {
         _framed = true;
         _map.move(LatLng(p.latitude, p.longitude), 16);
       }
+      _autoLocate(p);
     });
+  }
+
+  /// How tight a fix has to be before a pickup pin is put on it.
+  ///
+  /// A coarse reading is still drawn; what it does not get is a pickup filled
+  /// in from it. Sending a motari to the middle of a five kilometre circle
+  /// wastes the trip for both of them.
+  static const double _trustworthyM = 200;
+
+  /// Whether the pickup has already been filled in from the phone's own fix.
+  /// A courtesy is offered once; after that the field is the passenger's.
+  bool _autoLocated = false;
+
+  /// Fill the pickup in from the first fix worth standing on.
+  ///
+  /// Somebody opening this screen wants a moto where they are, and making them
+  /// tap to say so is a step with only one answer. It is written into the
+  /// field rather than held quietly, so they can read it and change it, and it
+  /// never lands on top of a pickup they chose themselves.
+  Future<void> _autoLocate(Position p) async {
+    if (_autoLocated || _pickup != null || _ride != null) return;
+    if (p.accuracy > _trustworthyM) return;
+    _autoLocated = true;
+
+    final name = await widget.api.nameOfPlace(p.latitude, p.longitude);
+    // They may have typed something while the name was on its way.
+    if (!mounted || _pickup != null) return;
+    setState(() {
+      _pickup = LatLng(p.latitude, p.longitude);
+      _pickupName = name;
+      _pickupText.text = name ?? '';
+    });
+    _refreshQuote();
   }
 
   /* ── the fare, and how much moto is around ────────────────────────────── */
@@ -528,6 +569,27 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     if (destLat != null && destLng != null) {
       markers.add(_pin(LatLng(destLat, destLng), Brand.green, Icons.flag));
     }
+    // Where the phone thinks it is. Drawn under the pins, because a chosen
+    // pickup outranks a guess at one, and only while there is no ride: once a
+    // motari is coming, the two things worth watching are them and the pin.
+    final device = _device;
+    if (device != null && ride == null) {
+      markers.add(Marker(
+        point: LatLng(device.latitude, device.longitude),
+        width: 30,
+        height: 30,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0xFF3B82F6),
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2.5),
+            boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 7)],
+          ),
+          child: const Icon(Icons.person, color: Colors.white, size: 15),
+        ),
+      ));
+    }
+
     final driver = ride?.driver;
     if (driver?.latitude != null && driver?.longitude != null) {
       markers.add(Marker(
