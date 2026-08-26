@@ -78,8 +78,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   /// The sheet folded down so the map can be seen.
   bool _minimised = false;
 
-  /// The question the passenger has reopened, if any. Left null, the sheet asks
-  /// the first one that has no answer.
+  /// A folded line the passenger reopened to change, if any.
   _Ask? _open;
 
   /// The destination question has been answered — with a place, with text the
@@ -203,7 +202,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         // The fare is always the passenger's to name, but when there is a route
         // to price, the app opens with that price already in the box rather
         // than an empty one.
-        if (!_fareTouched && quote.quotedFareRwf != null) {
+        if (!_fareTouched && quote.quotedFareRwf != null && _measurable) {
           _fare.text = '${quote.quotedFareRwf}';
         }
       });
@@ -734,26 +733,25 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     );
   }
 
-  /* ── asking, one question at a time ───────────────────────────────────── */
+  /* ── asking, in the order the answers arrive ──────────────────────────── */
 
-  /// Which question is open. A step opens only once the one before it has an
-  /// answer, so the sheet never shows a passenger a field they cannot fill yet.
-  _Ask get _step {
-    if (_open != null) return _open!;
-    if (_pickup == null) return _Ask.from;
-    if (!_toSettled) return _Ask.to;
-    if (_namedFare == null || _namedFare! < _minFare) return _Ask.fare;
-    return _Ask.who;
-  }
-
+  /// Where each stage stands. Nothing is hidden that could be filled in now:
+  /// the kind, the pickup and the destination are all on screen from the start,
+  /// and the later stages appear as the earlier ones are answered rather than
+  /// sitting there greyed out with nothing to say.
   bool get _fromDone => _pickup != null;
   bool get _toDone => _toSettled;
+  bool get _placesDone => _fromDone && _toDone;
   bool get _fareDone => _namedFare != null && _namedFare! >= _minFare;
   bool get _whoDone =>
       _name.text.trim().length >= 2 && RegExp(r'^07\d{8}$').hasMatch(_phone.text.trim());
 
-  /// Move on, and let the steps work out what comes next.
-  void _next() {
+  /// A destination taken off the map has a route behind it, so the app can
+  /// price it and only asks the passenger to agree. One typed as free text has
+  /// nothing to measure, so the price is theirs to set.
+  bool get _pricedByRoute => _measurable && (_quote?.quotedFareRwf ?? 0) > 0;
+
+  void _collapse() {
     FocusScope.of(context).unfocus();
     setState(() {
       _open = null;
@@ -762,10 +760,13 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   }
 
   List<Widget> _requestForm() {
-    final step = _step;
+    // Once the fare is settled the places fold away to two lines, so the part
+    // still being filled in is the part on screen.
+    final folded = _fareDone;
+
     return [
-      // Ride or parcel. The choice comes first because it changes what the rest
-      // of the questions mean.
+      // What kind of job. It comes first because it changes what everything
+      // below it means, and it is never hidden.
       Row(
         children: [
           _kindTab('RIDE', Icons.two_wheeler, t('ask.ride')),
@@ -773,63 +774,80 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           _kindTab('COURIER', Icons.inventory_2, t('ask.courier')),
         ],
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 14),
 
-      // Answered questions collapse to a line each, and any of them can be
-      // reopened by tapping it.
-      if (_fromDone && step != _Ask.from)
-        _answered(
+      if (folded) ...[
+        _folded(
           dot: Brand.orange,
           label: t('ask.from'),
           value: _pickupName ?? t('ask.my_location'),
-          onTap: () => setState(() => _open = _Ask.from),
+          onEdit: () => setState(() => _open = _Ask.from),
         ),
-      if (_toDone && step != _Ask.to)
-        _answered(
+        _folded(
           dot: Brand.green,
           label: t('ask.to_label'),
           value: _destText.text.trim().isEmpty
               ? t('ask.no_destination')
               : _destText.text.trim(),
-          onTap: () => setState(() => _open = _Ask.to),
+          onEdit: () => setState(() => _open = _Ask.to),
         ),
-      if (_fareDone && step != _Ask.fare)
-        _answered(
+        _folded(
           dot: Brand.orange,
           label: t('ask.fare_label'),
           value: rwf(_namedFare),
-          onTap: () => setState(() => _open = _Ask.fare),
+          onEdit: () => setState(() => _open = _Ask.fare),
         ),
-      if (_whoDone && step != _Ask.who)
-        _answered(
-          dot: Brand.dim,
-          label: t('ask.you_label'),
-          value: '${_name.text.trim()} · ${_phone.text.trim()}',
-          onTap: () => setState(() => _open = _Ask.who),
-        ),
+      ] else
+        ..._places(),
 
-      // And the question being asked right now.
-      ...switch (step) {
-        _Ask.from => _askFrom(),
-        _Ask.to => _askTo(),
-        _Ask.fare => _askFare(),
-        _Ask.who => _askWho(),
-      },
+      // Reopening a folded line puts just that one back, above everything else.
+      if (folded && _open != null) ...[
+        const SizedBox(height: 4),
+        ...switch (_open!) {
+          _Ask.from => _fromField(),
+          _Ask.to => _toField(),
+          _Ask.fare => _fareField(),
+          _Ask.who => const <Widget>[],
+        },
+        const SizedBox(height: 8),
+        _quietButton(label: t('ask.done'), onTap: _collapse),
+      ],
+
+      // The money. It arrives once there is somewhere to go, because before
+      // that there is nothing to price.
+      if (_placesDone && !folded) ...[
+        const SizedBox(height: 14),
+        ..._fareField(),
+      ],
+
+      // And the passenger, once the money is agreed.
+      if (_fareDone && _open == null) ...[
+        const SizedBox(height: 14),
+        ..._whoFields(),
+      ],
     ];
   }
 
-  /// One answered question: a line you can tap to change your mind.
-  Widget _answered({
+  /// The two places, shown together: a passenger can see the whole journey they
+  /// are asking for rather than one end of it.
+  List<Widget> _places() => [
+        ..._fromField(),
+        const SizedBox(height: 10),
+        ..._toField(),
+      ];
+
+  /// One answered line: what it says, and a way to change it.
+  Widget _folded({
     required Color dot,
     required String label,
     required String value,
-    required VoidCallback onTap,
+    required VoidCallback onEdit,
   }) =>
       GestureDetector(
-        onTap: onTap,
+        onTap: onEdit,
         behavior: HitTestBehavior.opaque,
         child: Padding(
-          padding: const EdgeInsets.only(bottom: 9),
+          padding: const EdgeInsets.only(bottom: 10),
           child: Row(
             children: [
               Container(
@@ -837,62 +855,62 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                 height: 8,
                 decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
               ),
-              const SizedBox(width: 9),
-              Text(label.toUpperCase(), style: Brand.micro),
-              const SizedBox(width: 9),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: 46,
+                child: Text(label.toUpperCase(), style: Brand.micro),
+              ),
               Expanded(
                 child: Text(
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
                   style: const TextStyle(
                       color: Brand.text, fontSize: 12.5, fontWeight: FontWeight.w700),
                 ),
               ),
-              const SizedBox(width: 6),
-              const Icon(Icons.edit_outlined, size: 12, color: Brand.dim),
-            ],
-          ),
-        ),
-      );
-
-  /// The heading over whichever question is open.
-  Widget _question(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(
-          text,
-          style: const TextStyle(
-              color: Brand.text, fontSize: 15, fontWeight: FontWeight.w900),
-        ),
-      );
-
-  /* ── 1. where are you ─────────────────────────────────────────────────── */
-
-  List<Widget> _askFrom() => [
-        _question(t('ask.q_from')),
-
-        // The phone knows, but only if it is asked: a button, not a silent fill.
-        if (_device != null) ...[
-          _bigButton(
-            icon: Icons.my_location,
-            label: _locating ? t('ask.locating') : t('ask.use_my_location'),
-            onTap: _locating ? null : _useMyLocation,
-          ),
-          const SizedBox(height: 9),
-          Row(
-            children: [
-              const Expanded(child: Divider(color: Brand.line, height: 1)),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text(t('signin.or'), style: Brand.micro),
+              const SizedBox(width: 8),
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: Brand.surface,
+                  border: Border.all(color: Brand.line),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.edit_outlined, size: 12, color: Brand.orange),
               ),
-              const Expanded(child: Divider(color: Brand.line, height: 1)),
             ],
           ),
-          const SizedBox(height: 9),
-        ],
+        ),
+      );
 
+  /// A small heading over a field, so every part of the sheet says what it is.
+  Widget _label(String text, {String? hint}) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          children: [
+            Text(text.toUpperCase(), style: Brand.micro),
+            if (hint != null) ...[
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  hint,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.right,
+                  style: const TextStyle(color: Brand.dim, fontSize: 10.5),
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+
+  /* ── where from ───────────────────────────────────────────────────────── */
+
+  List<Widget> _fromField() => [
+        _label(t('ask.from'), hint: _device == null ? null : t('ask.tap_map_hint')),
         _placeField(
           field: _Field.pickup,
           controller: _pickupText,
@@ -901,15 +919,21 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         ),
         ..._resultsFor(_Field.pickup),
 
-        const SizedBox(height: 8),
-        Text(t('ask.or_tap_map'), style: Brand.micro),
+        // The phone knows where it is, but only says so when asked.
+        if (_device != null) ...[
+          const SizedBox(height: 8),
+          _bigButton(
+            icon: Icons.my_location,
+            label: _locating ? t('ask.locating') : t('ask.use_my_location'),
+            onTap: _locating ? null : _useMyLocation,
+          ),
+        ],
       ];
 
-  /* ── 2. where to ──────────────────────────────────────────────────────── */
+  /* ── where to ─────────────────────────────────────────────────────────── */
 
-  List<Widget> _askTo() => [
-        _question(_kind == 'COURIER' ? t('ask.q_to_parcel') : t('ask.q_to')),
-
+  List<Widget> _toField() => [
+        _label(_kind == 'COURIER' ? t('ask.to_label_parcel') : t('ask.to_label')),
         _placeField(
           field: _Field.dest,
           controller: _destText,
@@ -919,7 +943,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         ..._resultsFor(_Field.dest),
 
         // Typed something the map has never heard of: that is still a place,
-        // and it is taken as written.
+        // and the price becomes the passenger's to name.
         if (_typedOnly && !_searching) ...[
           const SizedBox(height: 8),
           Text(t('ask.not_on_map'), style: Brand.micro),
@@ -929,15 +953,14 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
             label: t('ask.use_what_i_typed'),
             onTap: () {
               setState(() => _toSettled = true);
-              _next();
+              _collapse();
             },
           ),
         ],
 
-        // A ride with nowhere named runs on the meter, which is a real answer
-        // and not a skipped question.
+        // A ride with nowhere named runs on the meter, which is a real answer.
         if (_kind == 'RIDE' && _destText.text.trim().isEmpty) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _quietButton(
             label: t('ask.no_destination_button'),
             onTap: () {
@@ -946,38 +969,35 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                 _toSettled = true;
               });
               _refreshQuote();
-              _next();
+              _collapse();
             },
           ),
         ],
       ];
 
-  /* ── 3. how much ──────────────────────────────────────────────────────── */
+  /* ── how much ─────────────────────────────────────────────────────────── */
 
-  List<Widget> _askFare() {
+  List<Widget> _fareField() {
     final quote = _quote;
     final min = _minFare;
     final named = _namedFare;
     final tooLittle = named != null && min > 0 && named < min;
-    final priced = _measurable && quote?.quotedFareRwf != null;
 
     return [
-      _question(t('ask.q_fare')),
+      // A route the app measured gives a price to agree with; a place only the
+      // passenger knows leaves the price to them.
+      _label(
+        _pricedByRoute ? t('ask.approx_amount') : t('ask.q_fare'),
+        hint: _pricedByRoute && quote?.distanceM != null ? km(quote!.distanceM) : null,
+      ),
 
-      // Where there is a route, the app has already worked out a price and put
-      // it in the box; the passenger is agreeing to it or changing it.
-      if (priced)
+      if (_pricedByRoute)
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            t('ask.we_suggest', {
-              'amount': rwf(quote!.quotedFareRwf),
-              'distance': km(quote.distanceM),
-            }),
-            style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.4),
-          ),
+          child: Text(t('ask.approx_hint'),
+              style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.4)),
         )
-      else if (quote != null)
+      else if (quote != null && !_measurable)
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
@@ -993,12 +1013,13 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         controller: _fare,
         keyboardType: TextInputType.number,
         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        autofocus: !priced,
         onChanged: (_) => setState(() => _fareTouched = true),
         style: const TextStyle(
             color: Brand.orange, fontSize: 19, fontWeight: FontWeight.w900),
         decoration: InputDecoration(
           hintText: min > 0 ? t('ask.at_least', {'amount': rwf(min)}) : 'RWF',
+          // The currency sits in the field rather than in the number, so what
+          // the passenger types is only ever the amount.
           prefixIcon: const Padding(
             padding: EdgeInsets.only(left: 12, right: 8),
             child: Center(
@@ -1017,29 +1038,24 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         Text(t('ask.too_little', {'amount': rwf(min)}),
             style: const TextStyle(color: Brand.amber, fontSize: 11)),
       ],
-
-      const SizedBox(height: 10),
-      _bigButton(
-        icon: Icons.arrow_forward,
-        label: t('ask.next'),
-        onTap: _fareDone ? _next : null,
-      ),
     ];
   }
 
-  /* ── 4. who are you ───────────────────────────────────────────────────── */
+  /* ── who is asking ────────────────────────────────────────────────────── */
 
-  List<Widget> _askWho() => [
-        _question(t('ask.q_who')),
-        Text(t('ask.who_why'), style: Brand.micro),
-        const SizedBox(height: 8),
+  List<Widget> _whoFields() => [
+        _label(t('ask.you_label'), hint: t('ask.who_why')),
 
         TextField(
           controller: _name,
           textCapitalization: TextCapitalization.words,
           onChanged: (_) => setState(() {}),
           style: const TextStyle(color: Brand.text, fontSize: 13),
-          decoration: InputDecoration(hintText: t('ask.your_name')),
+          decoration: InputDecoration(
+            hintText: t('ask.your_name'),
+            prefixIcon: const Icon(Icons.person_outline, size: 15, color: Brand.dim),
+            prefixIconConstraints: const BoxConstraints(minWidth: 36),
+          ),
         ),
         const SizedBox(height: 8),
         TextField(
@@ -1051,17 +1067,26 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           ],
           onChanged: (_) => setState(() {}),
           style: const TextStyle(color: Brand.text, fontSize: 13),
-          decoration: const InputDecoration(hintText: '07xxxxxxxx'),
+          decoration: const InputDecoration(
+            hintText: '07xxxxxxxx',
+            prefixIcon: Icon(Icons.call_outlined, size: 15, color: Brand.dim),
+            prefixIconConstraints: BoxConstraints(minWidth: 36),
+          ),
         ),
 
-        const SizedBox(height: 12),
-        PrimaryButton(
-          label: _busy ? t('ask.asking') : t('ask.request'),
-          icon: Icons.two_wheeler,
-          onPressed: _canRequest ? _request : null,
-        ),
-        const SizedBox(height: 6),
-        Text(t('ask.no_account'), textAlign: TextAlign.center, style: Brand.micro),
+        // The button arrives only when there is something to press it for.
+        if (_whoDone) ...[
+          const SizedBox(height: 14),
+          PrimaryButton(
+            label: _busy
+                ? t('ask.asking')
+                : _kind == 'COURIER' ? t('ask.find_delivery') : t('ask.find'),
+            icon: Icons.search,
+            onPressed: _canRequest ? _request : null,
+          ),
+          const SizedBox(height: 6),
+          Text(t('ask.no_account'), textAlign: TextAlign.center, style: Brand.micro),
+        ],
       ];
 
   /* ── the pieces the questions are made of ─────────────────────────────── */
@@ -1084,7 +1109,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     });
     _map.move(here, 16);
     _refreshQuote();
-    _next();
+    _collapse();
   }
 
   Widget _bigButton({
@@ -1284,7 +1309,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                 'COMPLETED' => t('track.completed'),
                 'CLOSED' => t('track.closed'),
                 'CANCELLED' => t('track.cancelled'),
-                'EXPIRED' => t('track.expired'),
+                'NO_MATCH' => t('track.expired'),
                 _ => ride.status,
               },
               style: const TextStyle(

@@ -587,7 +587,9 @@ class PassengerRide {
   bool get live => const ['ASSIGNED', 'ARRIVED', 'IN_RIDE'].contains(status);
 
   /// Over, one way or another.
-  bool get done => const ['CLOSED', 'CANCELLED', 'EXPIRED'].contains(status);
+  /// NO_MATCH is the platform's name for a request nobody took. Waiting for an
+  /// EXPIRED that is never sent left those rides looking live forever.
+  bool get done => const ['CLOSED', 'CANCELLED', 'NO_MATCH'].contains(status);
 
   /// The fare the passenger actually owes: their own price if they named one.
   int? get fareRwf => finalFareRwf ?? offeredFareRwf ?? quotedFareRwf;

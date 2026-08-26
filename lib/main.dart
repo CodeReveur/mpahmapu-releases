@@ -1,11 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 
 import 'api.dart';
 import 'i18n.dart';
 import 'screens/drive_screen.dart';
 import 'screens/permission_gate.dart';
 import 'screens/ride_screen.dart';
+import 'permissions.dart';
 import 'screens/sign_in_screen.dart';
 import 'screens/splash_screen.dart';
 import 'theme.dart';
@@ -34,7 +38,7 @@ class MotariApp extends StatefulWidget {
   State<MotariApp> createState() => _MotariAppState();
 }
 
-class _MotariAppState extends State<MotariApp> {
+class _MotariAppState extends State<MotariApp> with WidgetsBindingObserver {
   final _api = Api();
   bool _ready = false;
 
@@ -46,6 +50,9 @@ class _MotariAppState extends State<MotariApp> {
   /// and the app remembers by keeping their session.
   bool _driving = false;
 
+  /// Location being switched off mid-shift, which puts the gate back up.
+  StreamSubscription<ServiceStatus>? _locationWatch;
+
   /// The opening animation has had its turn. Session restore is usually done
   /// long before it is, so this is what actually decides when the app appears.
   bool _shown = false;
@@ -53,11 +60,42 @@ class _MotariAppState extends State<MotariApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     // A motari stays signed in until they log out, so the app opens straight
     // into work if a session is already on the device.
     _api.restore().then((_) {
       if (mounted) setState(() => _ready = true);
     });
+
+    // Nothing in this app works without location: a passenger cannot be found
+    // and a motari cannot be placed. Allowing it once at startup is not the
+    // same as having it, so the phone's own switch is watched for the whole
+    // session and the gate goes back up the moment it is turned off.
+    _locationWatch = Geolocator.getServiceStatusStream().listen((status) {
+      if (status == ServiceStatus.disabled && mounted) {
+        setState(() => _permitted = false);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _locationWatch?.cancel();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Permission can be taken away in the system settings, which the service
+    // stream says nothing about: coming back is the moment to ask again.
+    if (state == AppLifecycleState.resumed && _permitted) _recheckLocation();
+  }
+
+  Future<void> _recheckLocation() async {
+    final access = await Permissions.locationStatus();
+    if (!access.ok && mounted) setState(() => _permitted = false);
   }
 
   @override
