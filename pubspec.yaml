@@ -1,7 +1,7 @@
 name: motari
 description: "Motari — the moto taxi driver app for MpahMapu."
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.12.2

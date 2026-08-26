@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../i18n.dart';
 import '../models.dart';
+import '../routing.dart' show metresBetween;
 import '../permissions.dart';
 import '../theme.dart';
 import '../widgets/language_button.dart';
@@ -186,7 +187,13 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
        * fix drawn inside its accuracy ring is honest. A coarse fix discarded
        * looks like a broken app.
        */
-      setState(() => _device = p);
+      // Keep the better of what we have and what just arrived, so a stray
+      // coarse reading cannot throw away a good one. Something no worse than
+      // half as good still wins, because the passenger does move.
+      if (_device == null || p.accuracy <= _bestAccuracy * 2) {
+        if (p.accuracy < _bestAccuracy) _bestAccuracy = p.accuracy;
+        setState(() => _device = p);
+      }
       if (!_framed) {
         _framed = true;
         _map.move(LatLng(p.latitude, p.longitude), 16);
@@ -197,10 +204,25 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   /// How tight a fix has to be before a pickup pin is put on it.
   ///
-  /// A coarse reading is still drawn; what it does not get is a pickup filled
-  /// in from it. Sending a motari to the middle of a five kilometre circle
-  /// wastes the trip for both of them.
-  static const double _trustworthyM = 200;
+  /// Twenty five metres, not two hundred. Two hundred was enough to name the
+  /// wrong street: Kigali's KK and KG districts meet along roads narrower than
+  /// that, so a fix well inside its own stated accuracy could still be
+  /// reverse geocoded to the wrong side of a junction and tell a passenger
+  /// standing on KK that they were on KG. A phone outdoors reaches this in a
+  /// few seconds.
+  ///
+  /// A coarser reading is still drawn; what it does not get is a name and a
+  /// pin. Sending a motari to the middle of a five kilometre circle wastes
+  /// the trip for both of them.
+  static const double _trustworthyM = 25;
+
+  /// The tightest fix seen so far.
+  ///
+  /// Readings arrive worst first: the phone answers from the network while the
+  /// GPS is still warming up, and wanders afterwards. Taking the latest would
+  /// let a good position be replaced by a worse one; taking the best lets the
+  /// marker settle instead of jitter.
+  double _bestAccuracy = double.infinity;
 
   /// Whether the pickup has already been filled in from the phone's own fix.
   /// A courtesy is offered once; after that the field is the passenger's.
@@ -561,7 +583,16 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     final ride = _ride;
     final pickup = ride == null ? _pickup : LatLng(ride.pickupLat, ride.pickupLng);
 
-    if (pickup != null) {
+    // The pickup, unless it is simply where the passenger is standing, in
+    // which case the blue person below already marks the spot. Two markers on
+    // one point read as two people, and say nothing the one did not.
+    final here = _device;
+    final pickupIsHere = pickup != null &&
+        here != null &&
+        ride == null &&
+        metresBetween(pickup, LatLng(here.latitude, here.longitude)) < 25;
+
+    if (pickup != null && !pickupIsHere) {
       markers.add(_pin(pickup, Brand.orange, Icons.person));
     }
     final destLat = ride?.destLat ?? _dest?.latitude;
