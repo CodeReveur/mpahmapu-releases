@@ -105,7 +105,7 @@ class _MotariAppState extends State<MotariApp> with WidgetsBindingObserver {
     return ValueListenableBuilder<String>(
       valueListenable: appLanguage,
       builder: (context, _, _) => MaterialApp(
-        title: 'Motari',
+        title: 'Ask Motari',
         debugShowCheckedModeBanner: false,
         theme: Brand.theme,
         home: _home(),

@@ -1456,7 +1456,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      driver.name ?? t('app.name'),
+                      driver.name ?? t('ride.unnamed_driver'),
                       style: const TextStyle(
                           color: Brand.text, fontSize: 13, fontWeight: FontWeight.w800),
                     ),

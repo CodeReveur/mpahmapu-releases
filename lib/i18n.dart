@@ -95,7 +95,10 @@ String tIn(String lang, String key, [Map<String, Object?>? vars]) {
 const Map<String, Map<String, String>> _catalogue = {
   /* ── English ─────────────────────────────────────────────────────────── */
   'en': {
-    'app.name': 'Motari',
+    'app.name': 'Ask Motari',
+    'ride.unnamed_driver': 'Your motari',
+    'drive.no_plate': 'No plate yet',
+    'settings.unnamed': 'A motari',
     'signin.forgot': 'Forgot your password?',
     'signin.email_first': 'Enter your email above first.',
     'signin.reset_sent': 'We sent a reset link to {email}. Open it, set a new password, then sign in here.',
@@ -398,7 +401,10 @@ const Map<String, Map<String, String>> _catalogue = {
 
   /* ── Français ────────────────────────────────────────────────────────── */
   'fr': {
-    'app.name': 'Motari',
+    'app.name': 'Ask Motari',
+    'ride.unnamed_driver': 'Votre motari',
+    'drive.no_plate': 'Pas encore de plaque',
+    'settings.unnamed': 'Un motari',
     'signin.forgot': 'Mot de passe oublié ?',
     'signin.email_first': 'Entrez d abord votre email ci dessus.',
     'signin.reset_sent': 'Lien envoyé à {email}. Ouvrez le, choisissez un mot de passe, puis connectez vous ici.',
@@ -691,7 +697,10 @@ const Map<String, Map<String, String>> _catalogue = {
 
   /* ── Kinyarwanda ─────────────────────────────────────────────────────── */
   'kinyy': {
-    'app.name': 'Motari',
+    'app.name': 'Ask Motari',
+    'ride.unnamed_driver': 'Motari wawe',
+    'drive.no_plate': 'Nta plaque irahari',
+    'settings.unnamed': 'Umumotari',
     'signin.forgot': 'Wibagiwe ijambobanga?',
     'signin.email_first': 'Banza wandike imeyili yawe hejuru.',
     'signin.reset_sent': 'Twoherereje umurongo kuri {email}. Uwufungure, uhindure ijambobanga, hanyuma winjire hano.',
@@ -984,7 +993,10 @@ const Map<String, Map<String, String>> _catalogue = {
 
   /* ── Kiswahili ───────────────────────────────────────────────────────── */
   'sw': {
-    'app.name': 'Motari',
+    'app.name': 'Ask Motari',
+    'ride.unnamed_driver': 'Motari wako',
+    'drive.no_plate': 'Bado hakuna namba',
+    'settings.unnamed': 'Motari',
     'signin.forgot': 'Umesahau nenosiri?',
     'signin.email_first': 'Weka barua pepe yako hapo juu kwanza.',
     'signin.reset_sent': 'Tumetuma kiungo kwa {email}. Kifungue, weka nenosiri jipya, kisha uingie hapa.',

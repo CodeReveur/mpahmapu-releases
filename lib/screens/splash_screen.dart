@@ -180,12 +180,12 @@ class _SplashScreenState extends State<SplashScreen>
         child: Opacity(
           opacity: _name.value,
           child: const Text(
-            'MOTARI',
+            'ASK MOTARI',
             style: TextStyle(
               color: Brand.text,
-              fontSize: 19,
+              fontSize: 18,
               fontWeight: FontWeight.w900,
-              letterSpacing: 7,
+              letterSpacing: 4.5,
             ),
           ),
         ),

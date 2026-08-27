@@ -442,7 +442,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                     children: [
                       _chip(
                         icon: Icons.two_wheeler,
-                        label: _profile?.plateNumber ?? t('app.name'),
+                        label: _profile?.plateNumber ?? t('drive.no_plate'),
                       ),
                       if (_position == null) ...[
                         const SizedBox(width: 6),

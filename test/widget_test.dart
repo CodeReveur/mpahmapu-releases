@@ -45,7 +45,24 @@ void main() {
 
     test('an unknown key falls back to English, not to nothing', () {
       appLanguage.value = 'sw';
-      expect(t('app.name'), 'Motari');
+      // The app is called the same thing in every language, which is what
+      // makes it a name rather than a word.
+      expect(t('app.name'), 'Ask Motari');
+    });
+
+    test('the app names itself, and a nameless driver does not borrow it', () {
+      // app.name once stood in for a person whose name we did not have, which
+      // only read sensibly while the app was called the same thing a driver
+      // is. Renaming it would have introduced drivers called "Ask Motari".
+      for (final code in Lang.codes) {
+        appLanguage.value = code;
+        expect(t('app.name'), 'Ask Motari');
+        for (final key in ['ride.unnamed_driver', 'drive.no_plate', 'settings.unnamed']) {
+          expect(t(key), isNot('Ask Motari'), reason: '$key in $code');
+          expect(t(key), isNot(key), reason: '$key is missing in $code');
+        }
+      }
+      appLanguage.value = Lang.initial;
     });
   });
 }

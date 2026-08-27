@@ -83,7 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _requestNumberChange() => _run(() async {
         await widget.api.contactSupport(
-          name: widget.api.userName ?? t('app.name'),
+          name: widget.api.userName ?? t('settings.unnamed'),
           // The server threads support by email and refuses a blank one, which
           // is why every message sent from here used to come back an error.
           email: widget.api.userEmail ?? '',
@@ -101,7 +101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _sendComplaint() => _run(() async {
         await widget.api.contactSupport(
-          name: widget.api.userName ?? t('app.name'),
+          name: widget.api.userName ?? t('settings.unnamed'),
           email: widget.api.userEmail ?? '',
           subject: t('settings.complaint_subject'),
           message: _complaint.text.trim(),
