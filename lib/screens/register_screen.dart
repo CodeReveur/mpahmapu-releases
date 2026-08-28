@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../api.dart';
 import '../i18n.dart';
 import '../theme.dart';
+import '../widgets/password_field.dart';
 import '../widgets/language_button.dart';
 
 /// Opening a motari account without leaving the app.
@@ -203,11 +204,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
                   Text(t('signin.password'), style: Brand.micro),
                   const SizedBox(height: 5),
-                  TextField(
+                  PasswordField(
                     controller: _password,
-                    obscureText: true,
                     onChanged: (_) => setState(() {}),
-                    style: const TextStyle(color: Brand.text, fontSize: 13),
                   ),
                   const SizedBox(height: 4),
                   Text(t('register.password_rule'), style: Brand.micro),

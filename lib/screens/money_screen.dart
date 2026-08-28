@@ -4,6 +4,7 @@ import '../api.dart';
 import '../i18n.dart';
 import '../models.dart';
 import '../theme.dart';
+import 'rewards_screen.dart';
 import '../widgets/fee_banner.dart';
 
 /// What the day earned, where it went, and what is owed. The daily fee lives
@@ -70,6 +71,20 @@ class _MoneyScreenState extends State<MoneyScreen> {
         title: Text(t('money.title'),
             style: const TextStyle(
                 fontSize: 16, fontWeight: FontWeight.w900, color: Brand.text)),
+        actions: [
+          // Money earned and money that could be earned belong next to each
+          // other: somebody looking at what they made is the person most
+          // interested in how to make more.
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => RewardsScreen(api: widget.api),
+            )),
+            icon: const Icon(Icons.card_giftcard, size: 15, color: Brand.orange),
+            label: Text(t('rewards.title'),
+                style: const TextStyle(
+                    color: Brand.orange, fontSize: 12, fontWeight: FontWeight.w800)),
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: Brand.orange))

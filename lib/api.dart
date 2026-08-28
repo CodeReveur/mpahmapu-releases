@@ -382,6 +382,16 @@ class Api {
   Future<MotariHistory> history() async => MotariHistory.fromJson(
       await _send('GET', '/api/rides/driver/history') as Map<String, dynamic>);
 
+  /// What this motari has earned, is close to earning, and has been paid for
+  /// bringing other people in. One call, because it is one screen.
+  Future<Map<String, dynamic>> rewards() async =>
+      await _send('GET', '/api/rides/driver/rewards') as Map<String, dynamic>;
+
+  /// Move everything waiting into the wallet. Until claimed, a bonus is a
+  /// promise rather than money.
+  Future<void> claimBonuses() async =>
+      await _send('POST', '/api/wallet/bonuses/claim');
+
   Future<MotariState> saveProfile({
     required String plateNumber,
     String? brandModel,
