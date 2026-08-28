@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api.dart';
 import '../i18n.dart';
@@ -40,6 +41,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _profile = widget.profile;
+    _loadReferral();
   }
 
   @override
@@ -112,6 +114,125 @@ class _SettingsScreenState extends State<SettingsScreen> {
         });
       });
 
+  /// The invite code, once the server has been asked for it.
+  ///
+  /// Asked for quietly and drawn only when it arrives: settings is a screen
+  /// people open to change one thing, and it should not sit empty waiting on a
+  /// network call to show them a box.
+  String? _referralCode;
+
+  Future<void> _loadReferral() async {
+    try {
+      final data = await widget.api.rewards();
+      final referral = data['referral'] as Map?;
+      final code = (referral?['code'] ?? '').toString();
+      if (mounted && code.isNotEmpty) setState(() => _referralCode = code);
+    } catch (_) {
+      // No code on screen is the right failure: the money screen has the whole
+      // picture, and settings is not the place to explain a network problem.
+    }
+  }
+
+  /// Bring somebody in, from the screen a motari already knows how to find.
+  ///
+  /// The full picture lives under Money, with what it has paid and who is
+  /// riding. This is the code itself, because that is the part somebody opens
+  /// settings looking for, and a code two taps away is a code nobody shares.
+  Widget _referralPanel() {
+    final code = _referralCode;
+    if (code == null) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Panel(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.card_giftcard, size: 15, color: Brand.orange),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(t('rewards.bring_someone'), style: Brand.micro),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(t('rewards.referral_how'),
+                  style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.5)),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+                      decoration: BoxDecoration(
+                        color: Brand.black,
+                        border: Border.all(color: Brand.orange),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        code,
+                        style: const TextStyle(
+                            color: Brand.text,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 2.5),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _codeButton(Icons.copy, t('rewards.copy'), () {
+                    Clipboard.setData(ClipboardData(text: code));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(t('rewards.copied'))),
+                    );
+                  }),
+                  const SizedBox(width: 6),
+                  _codeButton(Icons.share, t('rewards.share'), () => _shareCode(code)),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+      ],
+    );
+  }
+
+  Widget _codeButton(IconData icon, String label, VoidCallback onTap) => Semantics(
+        button: true,
+        label: label,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              border: Border.all(color: Brand.line),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 16, color: Brand.muted),
+          ),
+        ),
+      );
+
+  /// The same WhatsApp hand-off the rewards screen uses, for the same reason.
+  Future<void> _shareCode(String code) async {
+    final text = Uri.encodeComponent(t('rewards.share_text', {'code': code}));
+    try {
+      await launchUrl(Uri.parse('https://wa.me/?text=$text'),
+          mode: LaunchMode.externalApplication);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(t('rewards.share_failed'))),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = _profile;
@@ -135,6 +256,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(_error!, style: const TextStyle(color: Brand.red, fontSize: 12)),
             const SizedBox(height: 10),
           ],
+
+          _referralPanel(),
 
           const Panel(child: LanguageButton(inline: true)),
           const SizedBox(height: 10),
