@@ -181,21 +181,32 @@ class Api {
   }
 
   /// Open an account from inside the app. The role is fixed: this app makes
-  /// motari, and nothing else. A fresh account always has an email to verify,
-  /// so the caller goes straight to the code step.
-  Future<void> register({
+  /// motari, and nothing else.
+  ///
+  /// The session that comes back is kept rather than discarded. It used to be
+  /// thrown away and picked up again after the email code, which meant the moto
+  /// details typed on the form could not be written down until then, and were
+  /// lost outright by anybody who closed the app at the code screen. Whether
+  /// the address still needs confirming is the caller's next question, and the
+  /// answer is in what comes back.
+  Future<Map<String, dynamic>> register({
     required String name,
     required String email,
     required String phone,
     required String password,
-  }) =>
-      _send('POST', '/api/auth/register', body: {
-        'name': name,
-        'email': email,
-        'phone': phone,
-        'password': password,
-        'role': 'MOTARI',
-      });
+    String? referralCode,
+  }) async {
+    final data = await _send('POST', '/api/auth/register', body: {
+      'name': name,
+      'email': email,
+      'phone': phone,
+      'password': password,
+      'role': 'MOTARI',
+      if (referralCode != null && referralCode.isNotEmpty) 'referralCode': referralCode,
+    }) as Map<String, dynamic>;
+    await _saveSession(data);
+    return data;
+  }
 
   /// Finishes a login that asked for an authenticator code.
   Future<void> verifyTotp(String tempToken, String code) async {

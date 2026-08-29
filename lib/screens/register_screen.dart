@@ -75,34 +75,45 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (mounted) setState(() => _busy = false);
   }
 
+  /// Make the account, and write the moto to it straight away.
+  ///
+  /// The moto was being held until after the email code, so anybody who closed
+  /// the app at the code screen left an account with the role of a motari and
+  /// no moto on it: unable to be verified, unable to take work, and invisible
+  /// to the panel that would have chased them. The plate is on the screen and
+  /// the account exists, and there is nothing a code adds to writing it down.
   Future<void> _create() => _run(() async {
-        await widget.api.register(
+        final result = await widget.api.register(
           name: _name.text.trim(),
           email: _email.text.trim(),
           phone: _phone.text.trim(),
           password: _password.text,
         );
+
+        await widget.api.saveProfile(
+          plateNumber: _plate.text.trim(),
+          brandModel: _brand.text.trim().isEmpty ? null : _brand.text.trim(),
+          legalName: _name.text.trim(),
+        );
+
+        // An account that does not have to confirm anything is already live,
+        // so there is no code to ask for.
+        final user = result['user'] as Map<String, dynamic>?;
+        if (user != null && user['emailVerified'] == true) {
+          widget.onRegistered();
+          return;
+        }
+
         setState(() {
           _created = true;
           _notice = t('register.code_sent', {'email': _email.text.trim()});
         });
       });
 
-  /// The code proves the address; the sign in that follows puts a session on
-  /// the device; and the moto is written to the account before anyone is sent
-  /// to the working screen, so it opens ready rather than asking again.
+  /// The code only proves the address now. The moto was written with the
+  /// account, so there is nothing left to save before the working screen.
   Future<void> _verify() => _run(() async {
         await widget.api.verifyEmail(_email.text.trim(), _code.text.trim());
-        await widget.api.signIn(_email.text.trim(), _password.text);
-        if (!widget.api.signedIn) {
-          setState(() => _error = t('register.signin_yourself'));
-          return;
-        }
-        await widget.api.saveProfile(
-          plateNumber: _plate.text.trim(),
-          brandModel: _brand.text.trim().isEmpty ? null : _brand.text.trim(),
-          legalName: _name.text.trim(),
-        );
         widget.onRegistered();
       });
 
