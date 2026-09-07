@@ -12,6 +12,14 @@ class MotariProfile {
   final bool instantPayout;
   final String payoutMethod;
   final String? payoutPhone;
+
+  /// "MTN MoMo" or "Airtel Money", worked out by the server from the number.
+  final String? payoutOperator;
+
+  /// What one withdrawal costs, and how much of the balance is bonus money
+  /// that comes out without paying it.
+  final int withdrawFeeRwf;
+  final int bonusFreeRwf;
   final int totalRides;
 
   const MotariProfile({
@@ -23,6 +31,9 @@ class MotariProfile {
     required this.instantPayout,
     required this.payoutMethod,
     this.payoutPhone,
+    this.payoutOperator,
+    this.withdrawFeeRwf = 0,
+    this.bonusFreeRwf = 0,
     required this.totalRides,
   });
 
@@ -35,6 +46,9 @@ class MotariProfile {
         instantPayout: j['instantPayout'] as bool? ?? false,
         payoutMethod: j['payoutMethod'] as String? ?? 'MTN_MOMO',
         payoutPhone: j['payoutPhone'] as String?,
+        payoutOperator: j['payoutOperator'] as String?,
+        withdrawFeeRwf: (j['withdrawFeeRwf'] as num?)?.toInt() ?? 0,
+        bonusFreeRwf: (j['bonusFreeRwf'] as num?)?.toInt() ?? 0,
         totalRides: (j['totalRides'] as num?)?.toInt() ?? 0,
       );
 }

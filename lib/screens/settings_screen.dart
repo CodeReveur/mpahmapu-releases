@@ -28,7 +28,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final _payoutPhone = TextEditingController();
   final _newPhone = TextEditingController();
   final _complaint = TextEditingController();
 
@@ -46,7 +45,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   void dispose() {
-    _payoutPhone.dispose();
     _newPhone.dispose();
     _complaint.dispose();
     super.dispose();
@@ -76,10 +74,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             .setPayout(instantPayout: instant, payoutMethod: method, payoutPhone: phone);
         setState(() {
           _profile = next.profile;
-          if (phone != null) {
-            _payoutPhone.clear();
-            _notice = t('settings.payout_saved');
-          }
+          if (phone != null) _notice = t('settings.payout_saved');
         });
       });
 
@@ -308,43 +303,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     value: p.instantPayout,
                     onChanged: (v) => _savePayout(instant: v),
                   ),
+                  // Where it goes, said rather than asked.
+                  //
+                  // Switching this on used to open a network picker and a
+                  // phone box: the same number the motari registered with,
+                  // asked for a second time, and the network they are already
+                  // on offered as a choice. Two chances to get wrong what the
+                  // account already knows, and a mistyped payout number sends
+                  // real money to a stranger. The registered number is used,
+                  // and 078 and 079 are MTN while 072 and 073 are Airtel,
+                  // which the number itself says.
                   if (p.instantPayout) ...[
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(child: _methodButton(p, 'MTN_MOMO', t('money.mtn'))),
-                        const SizedBox(width: 6),
-                        Expanded(child: _methodButton(p, 'AIRTEL_MONEY', t('money.airtel'))),
-                      ],
-                    ),
                     const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: _payoutPhone,
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              LengthLimitingTextInputFormatter(10),
-                            ],
-                            style: const TextStyle(color: Brand.text, fontSize: 13),
-                            decoration: InputDecoration(
-                              hintText: p.payoutPhone ?? '07xxxxxxxx',
-                              contentPadding:
-                                  const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                            ),
-                            onChanged: (_) => setState(() {}),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        _smallButton(
-                          t('common.save'),
-                          enabled: !_busy && _validPhone(_payoutPhone.text),
-                          onTap: () => _savePayout(phone: _payoutPhone.text.trim()),
-                        ),
-                      ],
+                    Text(
+                      t('settings.payout_to', {
+                        'phone': p.payoutPhone ?? '',
+                        'operator': p.payoutOperator ?? '',
+                      }),
+                      style: Brand.micro,
                     ),
+                    const SizedBox(height: 2),
+                    Text(t('settings.payout_change'), style: Brand.micro),
                   ],
                 ],
               ),
@@ -488,30 +467,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ],
       );
-
-  Widget _methodButton(MotariProfile p, String method, String label) {
-    final selected = p.payoutMethod == method;
-    return GestureDetector(
-      onTap: _busy ? null : () => _savePayout(method: method),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: selected ? Brand.orange : Brand.surface,
-          border: Border.all(color: selected ? Brand.orange : Brand.line),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? Colors.black : Brand.muted,
-            fontSize: 10.5,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ),
-    );
-  }
 
   Widget _smallButton(String label, {required bool enabled, required VoidCallback onTap}) =>
       GestureDetector(

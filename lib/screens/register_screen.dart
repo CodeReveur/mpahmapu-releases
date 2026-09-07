@@ -83,18 +83,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
   /// to the panel that would have chased them. The plate is on the screen and
   /// the account exists, and there is nothing a code adds to writing it down.
   Future<void> _create() => _run(() async {
+        // The moto goes with the account, in the one request. A server that
+        // takes it writes both or neither, so a plate the regulator refuses
+        // cannot leave an account behind that exists and cannot ride.
         final result = await widget.api.register(
           name: _name.text.trim(),
           email: _email.text.trim(),
           phone: _phone.text.trim(),
           password: _password.text,
-        );
-
-        await widget.api.saveProfile(
           plateNumber: _plate.text.trim(),
           brandModel: _brand.text.trim().isEmpty ? null : _brand.text.trim(),
-          legalName: _name.text.trim(),
         );
+
+        /*
+         * Written again, harmlessly, for a server that did not take them.
+         *
+         * One that did has already saved the moto and this writes the same
+         * details over the top. One that ignored the extra fields saves them
+         * here. Either way a failure must not strand somebody whose account
+         * now exists: their email address is taken, so a dead form would
+         * leave them no way forward at all.
+         */
+        try {
+          await widget.api.saveProfile(
+            plateNumber: _plate.text.trim(),
+            brandModel: _brand.text.trim().isEmpty ? null : _brand.text.trim(),
+            legalName: _name.text.trim(),
+          );
+        } on ApiException catch (e) {
+          setState(() => _error = e.message);
+        }
 
         // An account that does not have to confirm anything is already live,
         // so there is no code to ask for.

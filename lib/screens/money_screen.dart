@@ -22,9 +22,14 @@ class MoneyScreen extends StatefulWidget {
 class _MoneyScreenState extends State<MoneyScreen> {
   MotariHistory? _history;
   Fees? _fees;
+  /// Where a withdrawal would go, and what it would cost. Read from the
+  /// server rather than worked out here, so the app and the website cannot
+  /// disagree about somebody's own money.
+  MotariProfile? _profile;
   bool _loading = true;
   bool _busy = false;
   String? _error;
+  String? _notice;
 
   @override
   void initState() {
@@ -37,12 +42,37 @@ class _MoneyScreenState extends State<MoneyScreen> {
     try {
       final history = await widget.api.history();
       if (mounted) setState(() => _history = history);
+      final state = await widget.api.state();
+      if (mounted) setState(() => _profile = state.profile);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
       // Keep whatever is on screen; the pull-to-refresh can try again.
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  /// Send the wallet to the number on the account. No amount means all of it.
+  Future<void> _withdraw() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _notice = null;
+    });
+    try {
+      final next = await widget.api.withdraw();
+      final history = await widget.api.history();
+      if (mounted) {
+        setState(() {
+          _profile = next.profile;
+          _history = history;
+          _notice = t('money.sent');
+        });
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+    if (mounted) setState(() => _busy = false);
   }
 
   Future<void> _payFees() async {
@@ -125,6 +155,16 @@ class _MoneyScreenState extends State<MoneyScreen> {
                     ),
                     const SizedBox(height: 8),
                     _stat(t('money.paid_out'), rwf(h.totalPaidOutRwf), Brand.text),
+
+                    // Taking it out. Only when there is something to take.
+                    if (h.walletBalanceRwf > 0) ...[
+                      const SizedBox(height: 10),
+                      _withdrawCard(h.walletBalanceRwf),
+                    ],
+                    if (_notice != null) ...[
+                      const SizedBox(height: 8),
+                      Text(_notice!, style: const TextStyle(color: Brand.green, fontSize: 12)),
+                    ],
                     const SizedBox(height: 16),
                     if (h.payouts.isNotEmpty) ...[
                       Text(t('money.payouts'), style: Brand.micro),
@@ -158,6 +198,69 @@ class _MoneyScreenState extends State<MoneyScreen> {
           ],
         ),
       );
+
+  /// The whole balance, to the number already on the account.
+  ///
+  /// One button and no form: a motari standing at a stop should not have to
+  /// type an amount, pick a network, or read a code out of an inbox to reach
+  /// money that is already theirs.
+  Widget _withdrawCard(int balance) {
+    final p = _profile;
+    final free = p?.bonusFreeRwf ?? 0;
+    final fee = p?.withdrawFeeRwf ?? 0;
+    final where = [
+      p?.payoutPhone,
+      p?.payoutOperator,
+    ].where((v) => v != null && v.isNotEmpty).join(' · ');
+
+    return Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(t('money.take_out'),
+                        style: const TextStyle(
+                            color: Brand.text, fontSize: 13, fontWeight: FontWeight.w800)),
+                    if (where.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(where, style: Brand.micro),
+                      ),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 34,
+                child: FilledButton(
+                  onPressed: _busy ? null : _withdraw,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Brand.orange,
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                  ),
+                  child: Text(_busy ? t('money.sending') : rwf(balance),
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            free > 0
+                ? t('money.fee_note_bonus', {'fee': rwf(fee), 'free': rwf(free)})
+                : t('money.fee_note', {'fee': rwf(fee)}),
+            style: Brand.micro,
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _payoutRow(Payout p) {
     final color = switch (p.status.toUpperCase()) {

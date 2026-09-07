@@ -194,6 +194,8 @@ class Api {
     required String email,
     required String phone,
     required String password,
+    String? plateNumber,
+    String? brandModel,
     String? referralCode,
   }) async {
     final data = await _send('POST', '/api/auth/register', body: {
@@ -202,6 +204,11 @@ class Api {
       'phone': phone,
       'password': password,
       'role': 'MOTARI',
+      // The moto travels with the account. Sent here rather than saved by a
+      // second call, so a plate the regulator refuses fails the registration
+      // instead of leaving an account that exists and cannot ride.
+      if (plateNumber != null && plateNumber.isNotEmpty) 'plateNumber': plateNumber,
+      if (brandModel != null && brandModel.isNotEmpty) 'brandModel': brandModel,
       if (referralCode != null && referralCode.isNotEmpty) 'referralCode': referralCode,
     }) as Map<String, dynamic>;
     await _saveSession(data);
@@ -415,6 +422,15 @@ class Api {
         'legalName': legalName,
         'licenseNumber': licenseNumber,
       }) as Map<String, dynamic>);
+
+  /// Take money out of the wallet to the number on the account.
+  ///
+  /// No amount means everything that can go. There is no code to confirm,
+  /// because the money can only reach the number already on the account:
+  /// there is nothing for a code to protect.
+  Future<MotariState> withdraw({int? amount}) async =>
+      MotariState.fromJson(await _send('POST', '/api/rides/driver/withdraw',
+          body: amount == null ? <String, dynamic>{} : {'amount': amount}) as Map<String, dynamic>);
 
   Future<MotariState> setOnline(bool online) async => MotariState.fromJson(
       await _send('POST', '/api/rides/driver/online', body: {'online': online})
