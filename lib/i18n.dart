@@ -2,8 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// The four languages the platform speaks, in the order the web lists them.
-/// Kinyarwanda is the default here as it is on the website: it is what a motari
-/// who has never touched the switch should read.
+/// English is the default across the platform.
 class Lang {
   static const codes = ['en', 'fr', 'kinyy', 'sw'];
   static const fallback = 'en';
@@ -25,12 +24,25 @@ class Lang {
 final appLanguage = ValueNotifier<String>(Lang.initial);
 
 const _prefsKey = 'motari.language';
+const _prefsMigratedKey = 'motari.language.v2_en_default';
 
-/// Read the stored choice at startup; a phone with none gets Kinyarwanda.
+/// Read the stored choice at startup; a phone with none gets English.
+/// Includes a migration check to ensure devices from older versions default to English.
 Future<void> restoreLanguage() async {
   final prefs = await SharedPreferences.getInstance();
+  final migrated = prefs.getBool(_prefsMigratedKey) ?? false;
+  if (!migrated) {
+    await prefs.setBool(_prefsMigratedKey, true);
+    await prefs.setString(_prefsKey, 'en');
+    appLanguage.value = 'en';
+    return;
+  }
   final stored = prefs.getString(_prefsKey);
-  if (stored != null && Lang.codes.contains(stored)) appLanguage.value = stored;
+  if (stored != null && Lang.codes.contains(stored)) {
+    appLanguage.value = stored;
+  } else {
+    appLanguage.value = 'en';
+  }
 }
 
 Future<void> setLanguage(String code) async {

@@ -18,9 +18,9 @@ void main() {
   group('the four languages', () {
     tearDown(() => appLanguage.value = Lang.initial);
 
-    test('a phone that has never chosen reads Kinyarwanda', () {
-      expect(appLanguage.value, 'kinyy');
-      expect(t('ride.arrived'), 'Ndageze');
+    test('a phone that has never chosen reads English', () {
+      expect(appLanguage.value, 'en');
+      expect(t('ride.arrived'), 'I have arrived');
     });
 
     test('every language answers every key the app asks for', () {
