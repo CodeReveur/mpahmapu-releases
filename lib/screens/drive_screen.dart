@@ -15,6 +15,7 @@ import '../permissions.dart';
 import '../routing.dart' as nav;
 import '../theme.dart';
 import '../widgets/fee_banner.dart';
+import '../widgets/language_button.dart';
 import '../widgets/map_layers.dart';
 import '../widgets/offer_card.dart';
 import '../widgets/ride_panel.dart';
@@ -76,8 +77,9 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   Ride? get _ride => _state?.activeRide;
   Offer? get _offer => _state?.offer;
   bool get isMandatoryOnlineHours {
-    final h = DateTime.now().hour;
-    return h >= 5 && h < 21;
+    final now = DateTime.now().toUtc();
+    final kigaliHour = (now.hour + 2) % 24;
+    return kigaliHour >= 5 && kigaliHour < 21;
   }
 
   bool get _online => isMandatoryOnlineHours || (_profile?.online ?? false);
@@ -441,71 +443,87 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
             ],
           ),
 
-          // Plate, and the online switch.
+          // Top Bar: Plate (left), Language (center), Online switch (right)
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  Row(
-                    children: [
-                      _chip(
-                        icon: Icons.two_wheeler,
-                        label: _profile?.plateNumber ?? t('drive.no_plate'),
-                      ),
-                      if (_position == null) ...[
-                        const SizedBox(width: 6),
-                        Flexible(child: _chip(icon: Icons.gps_not_fixed, label: t("gate.finding_you"))),
-                      ] else if (!_fixUsable) ...[
-                        // The one thing that will keep a motari online all day
-                        // without a single offer, said out loud.
-                        const SizedBox(width: 6),
-                        Flexible(child: _chip(icon: Icons.gps_not_fixed, label: t('drive.gps_coarse'))),
-                      ],
-                      const Spacer(),
-                      _onlineButton(),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      MapCredit(map: _basemap),
-                      const Spacer(),
-                      if (ride != null) ...[
-                        _voiceButton(),
-                        const SizedBox(width: 6),
-                      ],
-                      BasemapButton(
-                        value: _basemap,
-                        onChanged: (m) => setState(() => _basemap = m),
-                      ),
-                    ],
-                  ),
-                  if (ride != null) ...[
-                    const SizedBox(height: 8),
-                    _turnBanner(),
-                  ],
-                  if (showFee) ...[
-                    const SizedBox(height: 8),
-                    FeeBanner(
-                      fees: fees,
-                      busy: _busy,
-                      onPay: () => _act(() => widget.api.payFees()),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _chip(
+                      icon: Icons.two_wheeler,
+                      label: _profile?.plateNumber ?? t('drive.no_plate'),
                     ),
-                  ],
-                  if (offer != null && ride == null && _offerLeft > 0) ...[
-                    const SizedBox(height: 8),
-                    OfferCard(
-                      offer: offer,
-                      secondsLeft: _offerLeft,
-                      busy: _busy,
-                      onAccept: () => _act(() => widget.api.accept(offer.rideId)),
-                      onPass: () => _act(() => widget.api.decline(offer.rideId)),
+                  ),
+                  const LanguageButton(),
+                  if (!isMandatoryOnlineHours)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _onlineButton(),
                     ),
-                  ],
                 ],
               ),
+            ),
+          ),
+
+          // Top Banners (GPS warning, Navigation turns, Fees, Incoming Offer)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 56,
+            left: 14,
+            right: 14,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (!_fixUsable && _position != null) ...[
+                  _gpsCoarseBanner(),
+                  const SizedBox(height: 8),
+                ],
+                if (ride != null) ...[
+                  _turnBanner(),
+                  const SizedBox(height: 8),
+                ],
+                if (showFee) ...[
+                  FeeBanner(
+                    fees: fees,
+                    busy: _busy,
+                    onPay: () => _act(() => widget.api.payFees()),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (offer != null && ride == null && _offerLeft > 0) ...[
+                  OfferCard(
+                    offer: offer,
+                    secondsLeft: _offerLeft,
+                    busy: _busy,
+                    onAccept: () => _act(() => widget.api.accept(offer.rideId)),
+                    onPass: () => _act(() => widget.api.decline(offer.rideId)),
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // Floating controls above the sheet: Basemap switcher, voice button, map credit
+          Positioned(
+            right: 14,
+            bottom: MediaQuery.of(context).size.height * 0.62 + 12,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MapCredit(map: _basemap),
+                const SizedBox(width: 8),
+                if (ride != null) ...[
+                  _voiceButton(),
+                  const SizedBox(width: 6),
+                ],
+                BasemapButton(
+                  value: _basemap,
+                  onChanged: (m) => setState(() => _basemap = m),
+                ),
+              ],
             ),
           ),
 
@@ -540,6 +558,23 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
       ),
     );
   }
+
+  Widget _gpsCoarseBanner() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFF161616).withValues(alpha: 0.96),
+          border: Border.all(color: const Color(0xFF7C3A10)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          t('drive.gps_coarse'),
+          style: const TextStyle(
+            color: Color(0xFFFBBF24),
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
 
   Widget _chip({required IconData icon, required String label}) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),

@@ -54,6 +54,7 @@ class _RidePanelState extends State<RidePanel> {
   final _brand = TextEditingController();
   final _legalName = TextEditingController();
   bool _collapsed = false;
+  String _currentTab = 'rides';
 
   @override
   void dispose() {
@@ -118,8 +119,66 @@ class _RidePanelState extends State<RidePanel> {
   }
 
   bool get _isMandatoryOnline {
-    final h = DateTime.now().hour;
-    return h >= 5 && h < 21;
+    final now = DateTime.now().toUtc();
+    final kigaliHour = (now.hour + 2) % 24;
+    return kigaliHour >= 5 && kigaliHour < 21;
+  }
+
+  Widget _tabBar() => Container(
+        margin: const EdgeInsets.only(top: 4, bottom: 12),
+        child: Row(
+          children: [
+            _tabButton('rides', t('panel.tab_rides')),
+            const SizedBox(width: 6),
+            _tabButton('money', t('panel.tab_money')),
+            const SizedBox(width: 6),
+            _tabButton('trips', t('panel.tab_trips')),
+            const SizedBox(width: 6),
+            _tabButton('settings', t('panel.tab_settings')),
+          ],
+        ),
+      );
+
+  Widget _tabButton(String key, String label) {
+    final active = _currentTab == key;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          if (key == 'money') {
+            widget.onOpenMoney();
+          } else if (key == 'trips') {
+            widget.onOpenMoney();
+          } else if (key == 'settings') {
+            widget.onOpenSettings();
+          } else {
+            setState(() => _currentTab = key);
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 2),
+          decoration: BoxDecoration(
+            color: active ? Brand.orange : const Color(0xFF141414),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: active ? Brand.orange : const Color(0xFF2E2E2E),
+            ),
+          ),
+          child: Center(
+            child: Text(
+              label.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: active ? Colors.black : const Color(0xFF888888),
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _summary() {
@@ -141,10 +200,15 @@ class _RidePanelState extends State<RidePanel> {
   }
 
   List<Widget> _body() {
-    if (_profile == null) return _registerMoto();
-    final ride = _ride;
-    if (ride != null) return _activeRide(ride);
-    return _waiting();
+    return [
+      _tabBar(),
+      if (_profile == null)
+        ..._registerMoto()
+      else if (_ride != null)
+        ..._activeRide(_ride!)
+      else
+        ..._waiting(),
+    ];
   }
 
   /* ── no moto yet ──────────────────────────────────────────────────────── */
@@ -183,8 +247,6 @@ class _RidePanelState extends State<RidePanel> {
                     _legalName.text.trim().isEmpty ? null : _legalName.text.trim(),
                   ),
         ),
-        const SizedBox(height: 8),
-        _footer(),
       ];
 
   /* ── waiting for work ─────────────────────────────────────────────────── */
@@ -201,8 +263,6 @@ class _RidePanelState extends State<RidePanel> {
           icon: Icons.power_settings_new,
           onPressed: widget.busy ? null : widget.onGoOnline,
         ),
-        const SizedBox(height: 10),
-        _footer(),
       ];
     }
 
@@ -253,8 +313,6 @@ class _RidePanelState extends State<RidePanel> {
         )
       else
         ...nearby.map(_nearbyRow),
-      const SizedBox(height: 10),
-      _footer(),
     ];
   }
 
@@ -421,8 +479,6 @@ class _RidePanelState extends State<RidePanel> {
       ),
       const SizedBox(height: 10),
       ..._rideActions(ride),
-      const SizedBox(height: 8),
-      _footer(),
     ];
   }
 
@@ -633,27 +689,5 @@ class _RidePanelState extends State<RidePanel> {
         child: Text(t('ride.hand_back'),
             style: const TextStyle(
                 fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
-      );
-
-  /* ── the two other screens ────────────────────────────────────────────── */
-
-  Widget _footer() => Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          TextButton.icon(
-            onPressed: widget.onOpenMoney,
-            icon: const Icon(Icons.account_balance_wallet_outlined, size: 14, color: Brand.orange),
-            label: Text(t('panel.money'),
-                style: const TextStyle(
-                    color: Brand.muted, fontSize: 11.5, fontWeight: FontWeight.w700)),
-          ),
-          TextButton.icon(
-            onPressed: widget.onOpenSettings,
-            icon: const Icon(Icons.settings_outlined, size: 14, color: Brand.orange),
-            label: Text(t('panel.settings'),
-                style: const TextStyle(
-                    color: Brand.muted, fontSize: 11.5, fontWeight: FontWeight.w700)),
-          ),
-        ],
       );
 }

@@ -75,6 +75,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   /// The sheet folded down so the map can be seen.
   bool _minimised = false;
+  bool _menuOpen = false;
 
 
 
@@ -523,36 +524,57 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
             ],
           ),
 
+          // Top Bar: Hamburger Menu (left), Brand Chip (center), Language (right)
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  if (_supply != null && _ride == null) _supplyChip(),
-                  const Spacer(),
-                  BasemapButton(
-                    value: _basemap,
-                    onChanged: (m) => setState(() => _basemap = m),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: _hamburgerMenuButton(),
                   ),
-                  const SizedBox(width: 8),
-                  const LanguageButton(),
-                  const SizedBox(width: 8),
-                  _driveButton(),
+                  _brandChip(),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: const LanguageButton(),
+                  ),
                 ],
               ),
+            ),
+          ),
+
+          // Menu Dropdown if open
+          if (_menuOpen)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 48,
+              left: 14,
+              child: _menuDropdown(),
+            ),
+
+          // Floating controls right above the sheet: Supply (left), Basemap & MapCredit (right)
+          Positioned(
+            left: 14,
+            right: 14,
+            bottom: (_minimised ? 56 : MediaQuery.of(context).size.height * 0.58) + 12,
+            child: Row(
+              children: [
+                if (_supply != null && _ride == null) _supplyChip(),
+                const Spacer(),
+                MapCredit(map: _basemap),
+                const SizedBox(width: 8),
+                BasemapButton(
+                  value: _basemap,
+                  onChanged: (m) => setState(() => _basemap = m),
+                ),
+              ],
             ),
           ),
 
           Align(
             alignment: Alignment.bottomCenter,
             child: _sheet(),
-          ),
-
-          // Above the sheet, so it is never buried under it.
-          Positioned(
-            left: 8,
-            bottom: MediaQuery.of(context).size.height * 0.74 + 6,
-            child: MapCredit(map: _basemap),
           ),
         ],
       ),
@@ -668,33 +690,198 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _driveButton() => GestureDetector(
-        onTap: widget.onDrive,
+  Widget _brandChip() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212).withValues(alpha: 0.96),
+          border: Border.all(color: const Color(0xFF2E2E2E)),
+          borderRadius: BorderRadius.circular(999),
+          boxShadow: const [
+            BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(0, 4)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.two_wheeler, size: 12, color: Brand.orange),
+            const SizedBox(width: 6),
+            Text(
+              t('app.name').toUpperCase(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.0,
+              ),
+            ),
+          ],
+        ),
+      );
+
+  Widget _hamburgerMenuButton() => GestureDetector(
+        onTap: () => setState(() => _menuOpen = !_menuOpen),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
-            color: Brand.black.withValues(alpha: 0.94),
-            border: Border.all(color: Brand.line),
-            borderRadius: BorderRadius.circular(999),
+            color: const Color(0xFF121212).withValues(alpha: 0.96),
+            border: Border.all(color: const Color(0xFF2E2E2E)),
+            borderRadius: BorderRadius.circular(9),
           ),
-          child: Row(
+          child: Icon(
+            _menuOpen ? Icons.close : Icons.menu,
+            size: 14,
+            color: const Color(0xFFEEEEEE),
+          ),
+        ),
+      );
+
+  Widget _menuDropdown() => Container(
+        width: 175,
+        decoration: BoxDecoration(
+          color: const Color(0xFF121212).withValues(alpha: 0.96),
+          border: Border.all(color: const Color(0xFF2E2E2E)),
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: const [
+            BoxShadow(color: Colors.black87, blurRadius: 24, offset: Offset(0, 8)),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.two_wheeler, size: 12, color: Brand.orange),
-              const SizedBox(width: 5),
-              Text(
-                t('ask.i_drive'),
-                style: const TextStyle(
-                  color: Brand.text,
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.9,
+              _menuItem(
+                icon: Icons.two_wheeler,
+                label: t('ask.i_drive'),
+                onTap: () {
+                  setState(() => _menuOpen = false);
+                  widget.onDrive();
+                },
+              ),
+              _menuItem(
+                icon: Icons.login,
+                label: t('common.nav.signin'),
+                onTap: () {
+                  setState(() => _menuOpen = false);
+                  widget.onDrive();
+                },
+              ),
+              _menuItem(
+                icon: Icons.help_outline,
+                label: t('common.nav.help'),
+                onTap: () {
+                  setState(() => _menuOpen = false);
+                  _showHelpDialog();
+                },
+                isLast: true,
+              ),
+            ],
+          ),
+        ),
+      );
+
+  Widget _menuItem({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+    bool isLast = false,
+  }) =>
+      InkWell(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          decoration: BoxDecoration(
+            border: isLast
+                ? null
+                : const Border(bottom: BorderSide(color: Color(0xFF1F1F1F))),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 13, color: Brand.orange),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFFCCCCCC),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
           ),
         ),
       );
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF141414),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFF2C2C2C)),
+        ),
+        title: Row(
+          children: [
+            const Icon(Icons.help_outline, color: Brand.orange, size: 20),
+            const SizedBox(width: 8),
+            Text(t('common.nav.help'),
+                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Need assistance with a ride or delivery? Contact Ask Motari support:',
+              style: TextStyle(color: Color(0xFFCCCCCC), fontSize: 12.5, height: 1.5),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1C140C),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF4A2810)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.phone, color: Brand.orange, size: 16),
+                  const SizedBox(width: 10),
+                  const Text('+250 788 000 000',
+                      style: TextStyle(color: Brand.orange, fontWeight: FontWeight.w800, fontSize: 13)),
+                  const Spacer(),
+                  GestureDetector(
+                    onTap: () => launchUrl(Uri.parse('tel:+250788000000')),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Brand.orange,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text('CALL',
+                          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 10)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('CLOSE', style: TextStyle(color: Brand.orange, fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+  }
 
   /* ── the sheet ────────────────────────────────────────────────────────── */
 
@@ -842,30 +1029,18 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       Row(
         children: [
           _kindTab('RIDE', Icons.two_wheeler, t('ask.ride_tab')),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           _kindTab('COURIER', Icons.inventory_2_outlined, t('ask.delivery_tab')),
           const Spacer(),
           if (_supply != null)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-              decoration: BoxDecoration(
-                color: _supply!.active > 0
-                    ? const Color(0xFF14532D).withValues(alpha: 0.3)
-                    : const Color(0xFF1F1F1F),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: _supply!.active > 0
-                      ? const Color(0xFF22C55E).withValues(alpha: 0.4)
-                      : const Color(0xFF2E2E2E),
-                ),
-              ),
-              child: Text(
-                _supply!.active > 0 ? '${_supply!.active} active' : 'Searching',
-                style: TextStyle(
-                  fontSize: 9.5,
-                  fontWeight: FontWeight.w700,
-                  color: _supply!.active > 0 ? Brand.green : const Color(0xFF888888),
-                ),
+            Text(
+              _supply!.active > 0
+                  ? '${_supply!.active} ${t('motari.request.available')}${_supply!.nearestM != null ? ' · ${km(_supply!.nearestM)}' : ''}'
+                  : t('ask.none_around'),
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                color: _supply!.active > 0 ? const Color(0xFF4ADE80) : const Color(0xFF888888),
               ),
             ),
         ],
@@ -882,22 +1057,22 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       if (_kind == 'COURIER') ...[
         const SizedBox(height: 7),
         Container(
-          height: 36,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: const Color(0xFF161616),
+            color: const Color(0xFF141414),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFF2E2E2E)),
+            border: Border.all(color: const Color(0xFF2C2C2C)),
           ),
           child: Row(
             children: [
-              const Icon(Icons.inventory_2_outlined, size: 13, color: Brand.orange),
-              const SizedBox(width: 6),
+              const Icon(Icons.inventory_2_outlined, size: 12, color: Brand.orange),
+              const SizedBox(width: 8),
               Expanded(
                 child: TextField(
                   controller: _parcelNote,
                   textCapitalization: TextCapitalization.sentences,
-                  style: const TextStyle(color: Brand.text, fontSize: 12),
+                  style: const TextStyle(color: Colors.white, fontSize: 11.5, fontWeight: FontWeight.w500),
                   decoration: InputDecoration(
                     isDense: true,
                     contentPadding: EdgeInsets.zero,
@@ -918,7 +1093,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
       // 5. Fare offer & Phone number side-by-side
       _fareAndPhoneRow(),
-      const SizedBox(height: 9),
+      const SizedBox(height: 8),
 
       // 6. Action CTA button (Request Ride / Request Delivery)
       PrimaryButton(
@@ -928,29 +1103,28 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         icon: _kind == 'COURIER' ? Icons.local_shipping_outlined : Icons.two_wheeler,
         onPressed: _canRequest ? _request : null,
       ),
-      const SizedBox(height: 4),
+      const SizedBox(height: 6),
       Text(
         t('ask.footer_trust'),
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: Color(0xFF777777),
-          fontSize: 9.5,
+          color: Color(0xFF666666),
+          fontSize: 10,
           fontWeight: FontWeight.w600,
         ),
       ),
     ];
   }
 
-
-
   /* ── compact unified route card (From & To) ────────────────────────── */
 
   Widget _routeCard() {
     return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF161616),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFF2E2E2E)),
+        color: const Color(0xFF141414),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF2C2C2C)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -958,21 +1132,34 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           // Pickup row
           Row(
             children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 10),
-                child: Icon(Icons.circle, size: 8, color: Brand.orange),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: Brand.orange,
+                  shape: BoxShape.circle,
+                ),
               ),
+              const SizedBox(width: 8),
               Expanded(
                 child: TextField(
                   controller: _pickupText,
-                  style: const TextStyle(color: Brand.text, fontSize: 12.5),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                   onTap: () => setState(() => _field = _Field.pickup),
                   onChanged: (v) => _onTyped(_Field.pickup, v),
                   decoration: InputDecoration(
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 9, horizontal: 0),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
                     hintText: t('ask.pickup_location'),
-                    hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12),
+                    hintStyle: const TextStyle(
+                      color: Color(0xFF888888),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
@@ -992,56 +1179,89 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                     _refreshQuote();
                   },
                   child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 5),
-                    child: Icon(Icons.close, size: 14, color: Color(0xFF777777)),
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(Icons.close, size: 13, color: Color(0xFF666666)),
                   ),
                 ),
               GestureDetector(
                 onTap: _locating ? null : _useMyLocation,
                 child: Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.all(5),
+                  width: 24,
+                  height: 24,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF222222),
+                    color: const Color(0xFF221910),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFF333333)),
+                    border: Border.all(color: const Color(0xFF4A2810)),
                   ),
                   child: _locating
-                      ? const SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 1.5, color: Brand.orange),
+                      ? const Center(
+                          child: SizedBox(
+                            width: 11,
+                            height: 11,
+                            child: CircularProgressIndicator(strokeWidth: 1.5, color: Brand.orange),
+                          ),
                         )
-                      : const Icon(Icons.my_location, size: 13, color: Brand.orange),
+                      : const Icon(Icons.my_location, size: 12, color: Brand.orange),
                 ),
               ),
             ],
           ),
-          Container(
-            margin: const EdgeInsets.only(left: 32, right: 8),
-            height: 1,
-            color: const Color(0xFF262626),
+
+          // Vertical connector line
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                Container(
+                  margin: const EdgeInsets.only(left: 3),
+                  width: 2,
+                  height: 10,
+                  color: const Color(0xFF333333),
+                ),
+                Expanded(
+                  child: Container(
+                    margin: const EdgeInsets.only(left: 10),
+                    height: 1,
+                    color: const Color(0xFF222222),
+                  ),
+                ),
+              ],
+            ),
           ),
+
           // Destination row
           Row(
             children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 10),
-                child: Icon(Icons.location_on, size: 12, color: Brand.green),
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  color: _kind == 'COURIER' && _dest == null ? Brand.orange : Brand.green,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
+              const SizedBox(width: 8),
               Expanded(
                 child: TextField(
                   controller: _destText,
-                  style: const TextStyle(color: Brand.text, fontSize: 12.5),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
                   onTap: () => setState(() => _field = _Field.dest),
                   onChanged: (v) => _onTyped(_Field.dest, v),
                   decoration: InputDecoration(
                     isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 9, horizontal: 0),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 4),
                     hintText: _kind == 'COURIER'
                         ? t('ask.destination_required')
                         : t('ask.destination_optional'),
-                    hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12),
+                    hintStyle: const TextStyle(
+                      color: Color(0xFF888888),
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
@@ -1060,8 +1280,8 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                     _refreshQuote();
                   },
                   child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    child: Icon(Icons.close, size: 14, color: Color(0xFF777777)),
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Icon(Icons.close, size: 13, color: Color(0xFF666666)),
                   ),
                 ),
             ],
@@ -1084,17 +1304,17 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       children: [
         Row(
           children: [
-            // Left: Fare Offer (RWF)
+            // Left: Fare offer (50%)
             Expanded(
-              flex: 5,
+              flex: 1,
               child: Container(
                 height: 38,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF161616),
+                  color: const Color(0xFF141414),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: tooLittle ? Brand.amber : const Color(0xFF2E2E2E),
+                    color: tooLittle ? Brand.amber : const Color(0xFF2C2C2C),
                   ),
                 ),
                 child: Row(
@@ -1102,12 +1322,12 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                     const Text(
                       'RWF',
                       style: TextStyle(
-                        color: Brand.orange,
-                        fontSize: 10.5,
+                        color: Color(0xFF777777),
+                        fontSize: 10,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(width: 6),
+                    const SizedBox(width: 5),
                     Expanded(
                       child: TextField(
                         controller: _fare,
@@ -1115,9 +1335,9 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                         onChanged: (_) => setState(() => _fareTouched = true),
                         style: const TextStyle(
-                          color: Brand.text,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
+                          color: Brand.orange,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w900,
                         ),
                         decoration: InputDecoration(
                           isDense: true,
@@ -1126,8 +1346,8 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
                           fillColor: Colors.transparent,
-                          hintText: min > 0 ? '$min' : t('ask.fare_hint'),
-                          hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 11.5),
+                          hintText: min > 0 ? '$min' : 'Fare',
+                          hintStyle: const TextStyle(color: Color(0xFF777777), fontSize: 12),
                         ),
                       ),
                     ),
@@ -1136,20 +1356,20 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(width: 8),
-            // Right: Phone Number
+            // Right: Phone number (50%)
             Expanded(
-              flex: 6,
+              flex: 1,
               child: Container(
                 height: 38,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF161616),
+                  color: const Color(0xFF141414),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF2E2E2E)),
+                  border: Border.all(color: const Color(0xFF2C2C2C)),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.phone_outlined, size: 13, color: Brand.orange),
+                    const Icon(Icons.phone_outlined, size: 12, color: Color(0xFF777777)),
                     const SizedBox(width: 6),
                     Expanded(
                       child: TextField(
@@ -1161,9 +1381,9 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                         ],
                         onChanged: (_) => setState(() {}),
                         style: const TextStyle(
-                          color: Brand.text,
+                          color: Colors.white,
                           fontSize: 12.5,
-                          fontWeight: FontWeight.w700,
+                          fontWeight: FontWeight.w600,
                         ),
                         decoration: const InputDecoration(
                           isDense: true,
@@ -1172,8 +1392,8 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
                           fillColor: Colors.transparent,
-                          hintText: '078 000 0000',
-                          hintStyle: TextStyle(color: Color(0xFF888888), fontSize: 11.5),
+                          hintText: '07xxxxxxxx',
+                          hintStyle: TextStyle(color: Color(0xFF777777), fontSize: 12),
                         ),
                       ),
                     ),
@@ -1188,15 +1408,15 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
             padding: const EdgeInsets.only(top: 4, left: 2),
             child: Text(
               t('ask.too_little', {'amount': rwf(min)}),
-              style: const TextStyle(color: Brand.amber, fontSize: 10),
+              style: const TextStyle(color: Brand.amber, fontSize: 10.5),
             ),
           )
         else if (_pricedByRoute && quote?.distanceM != null)
           Padding(
-            padding: const EdgeInsets.only(top: 3, left: 2),
+            padding: const EdgeInsets.only(top: 4, left: 2),
             child: Text(
               '${km(quote!.distanceM)} route · Est. ${rwf(quote.quotedFareRwf)}',
-              style: const TextStyle(color: Color(0xFF888888), fontSize: 10),
+              style: const TextStyle(color: Color(0xFF888888), fontSize: 10.5),
             ),
           ),
       ],
@@ -1247,18 +1467,14 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                   _collapse();
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-                  color: const Color(0xFF261509),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF1C140C),
+                    border: Border(bottom: BorderSide(color: Color(0xFF2E1C0D))),
+                  ),
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: Brand.orange,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Icon(Icons.edit_location_alt, size: 12, color: Colors.black),
-                      ),
+                      const Icon(Icons.location_on, size: 14, color: Brand.orange),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
@@ -1269,22 +1485,24 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: Brand.text,
+                                color: Brand.orange,
                                 fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
+                            const SizedBox(height: 1),
                             Text(
-                              t('ask.send_typed_note'),
-                              style: TextStyle(
-                                color: Brand.orange.withValues(alpha: 0.85),
-                                fontSize: 9.5,
+                              field == _Field.dest
+                                  ? 'Tap to select this custom address'
+                                  : 'Tap to use this typed pickup address',
+                              style: const TextStyle(
+                                color: Color(0xFF888888),
+                                fontSize: 10,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const Icon(Icons.arrow_forward_ios, size: 10, color: Brand.orange),
                     ],
                   ),
                 ),
@@ -1292,7 +1510,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
               if (_searching)
                 const Padding(
-                  padding: EdgeInsets.all(10),
+                  padding: EdgeInsets.all(12),
                   child: Center(
                     child: SizedBox(
                       width: 14,
@@ -1306,24 +1524,45 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                   (place) => InkWell(
                     onTap: () => _pick(place),
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       decoration: const BoxDecoration(
-                        border: Border(top: BorderSide(color: Color(0xFF222222))),
+                        border: Border(top: BorderSide(color: Color(0xFF1F1F1F))),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.location_on_outlined, size: 13, color: Brand.orange),
+                          Icon(
+                            Icons.location_on_outlined,
+                            size: 13,
+                            color: field == _Field.dest ? Brand.green : Brand.orange,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              place.label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Brand.text,
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w600,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  place.label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                if (place.fullName.isNotEmpty && place.fullName != place.label) ...[
+                                  const SizedBox(height: 1),
+                                  Text(
+                                    place.fullName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: Color(0xFF777777),
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                           ),
                         ],
