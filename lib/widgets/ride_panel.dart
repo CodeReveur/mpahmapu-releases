@@ -117,12 +117,18 @@ class _RidePanelState extends State<RidePanel> {
     );
   }
 
+  bool get _isMandatoryOnline {
+    final h = DateTime.now().hour;
+    return h >= 5 && h < 21;
+  }
+
   Widget _summary() {
     final ride = _ride;
     final nearby = widget.state?.nearby.length ?? 0;
+    final online = _isMandatoryOnline || (_profile?.online ?? false);
     final text = ride != null
         ? t('panel.on_ride')
-        : (_profile?.online ?? false)
+        : online
             ? t('panel.waiting_nearby', {'count': nearby})
             : t('panel.offline');
     return Padding(
@@ -184,10 +190,10 @@ class _RidePanelState extends State<RidePanel> {
   /* ── waiting for work ─────────────────────────────────────────────────── */
 
   List<Widget> _waiting() {
-    final online = _profile?.online ?? false;
+    final online = _isMandatoryOnline || (_profile?.online ?? false);
     final nearby = widget.state?.nearby ?? const <NearbyRide>[];
 
-    if (!online) {
+    if (!online && !_isMandatoryOnline) {
       return [
         const SizedBox(height: 6),
         PrimaryButton(

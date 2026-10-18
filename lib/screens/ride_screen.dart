@@ -37,21 +37,17 @@ enum _Field { pickup, dest }
 /// What no trip may be priced under, before the server has said otherwise.
 const int _kFloorRwf = 500;
 
-/// The questions, in the order a passenger is asked them. Only one is ever open.
-enum _Ask { from, to, fare, who }
-
 const _kigali = LatLng(-1.9441, 30.0619);
 const _tokenKey = 'passenger.ride.token';
-const _nameKey = 'passenger.name';
 const _phoneKey = 'passenger.phone';
 
 class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   final _map = MapController();
-  final _name = TextEditingController();
   final _phone = TextEditingController();
   final _pickupText = TextEditingController();
   final _destText = TextEditingController();
   final _fare = TextEditingController();
+  final _parcelNote = TextEditingController();
 
   Position? _device;
   bool _framed = false;
@@ -80,8 +76,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   /// The sheet folded down so the map can be seen.
   bool _minimised = false;
 
-  /// A folded line the passenger reopened to change, if any.
-  _Ask? _open;
 
   /// The destination question has been answered — with a place, with text the
   /// map did not know, or with "no destination, run the meter". Typing alone
@@ -123,11 +117,11 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     _poll?.cancel();
     _beat?.cancel();
     _searchDebounce?.cancel();
-    _name.dispose();
     _phone.dispose();
     _pickupText.dispose();
     _destText.dispose();
     _fare.dispose();
+    _parcelNote.dispose();
     super.dispose();
   }
 
@@ -140,7 +134,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
-    _name.text = prefs.getString(_nameKey) ?? '';
     _phone.text = prefs.getString(_phoneKey) ?? '';
     final token = prefs.getString(_tokenKey);
     if (token != null) {
@@ -161,7 +154,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   Future<void> _remember() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_nameKey, _name.text.trim());
     await prefs.setString(_phoneKey, _phone.text.trim());
   }
 
@@ -326,8 +318,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         _toSettled = true;
       }
       _found = const [];
-      // Picking a place answers the question, so the next one opens.
-      _open = null;
     });
     _refreshQuote();
   }
@@ -344,7 +334,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     // Without a pickup there is nowhere to send anyone. A device fix gives one;
     // so does typing a place or tapping the map.
     if (_busy || _pickup == null) return false;
-    if (_name.text.trim().length < 2) return false;
     if (!RegExp(r'^07\d{8}$').hasMatch(_phone.text.trim())) return false;
     // A parcel always needs somewhere to go.
     if (_kind == 'COURIER' && _destText.text.trim().isEmpty) return false;
@@ -373,7 +362,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     try {
       final at = _pickup!;
       final ride = await widget.api.requestRide(
-        name: _name.text.trim(),
+        name: 'Passenger',
         phone: _phone.text.trim(),
         pickupLat: at.latitude,
         pickupLng: at.longitude,
@@ -383,6 +372,9 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         destName: _dest?.label ??
             (_destText.text.trim().isEmpty ? null : _destText.text.trim()),
         kind: _kind,
+        parcelNote: _kind == 'COURIER' && _parcelNote.text.trim().isNotEmpty
+            ? _parcelNote.text.trim()
+            : null,
         offeredFareRwf: _namedFare,
       );
       await _remember();
@@ -488,7 +480,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       _found = const [];
       _error = null;
       _toSettled = false;
-      _open = null;
       _fareTouched = false;
       _minimised = false;
     });
@@ -521,7 +512,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                       setState(() {
                         _pickup = point;
                         _pickupName = null;
-                        _open = null;
                       });
                       _refreshQuote();
                       // Name it, so the answered line reads as a place.
@@ -843,17 +833,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   /* ── asking, in the order the answers arrive ──────────────────────────── */
 
-  /// Where each stage stands. Nothing is hidden that could be filled in now:
-  /// the kind, the pickup and the destination are all on screen from the start,
-  /// and the later stages appear as the earlier ones are answered rather than
-  /// sitting there greyed out with nothing to say.
-  bool get _fromDone => _pickup != null;
-  bool get _toDone => _toSettled;
-  bool get _placesDone => _fromDone && _toDone;
-  bool get _fareDone => _namedFare != null && _namedFare! >= _minFare;
-  bool get _whoDone =>
-      _name.text.trim().length >= 2 && RegExp(r'^07\d{8}$').hasMatch(_phone.text.trim());
-
   /// A destination taken off the map has a route behind it, so the app can
   /// price it and only asks the passenger to agree. One typed as free text has
   /// nothing to measure, so the price is theirs to set.
@@ -862,19 +841,13 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   void _collapse() {
     FocusScope.of(context).unfocus();
     setState(() {
-      _open = null;
       _found = const [];
     });
   }
 
   List<Widget> _requestForm() {
-    // Once the fare is settled the places fold away to two lines, so the part
-    // still being filled in is the part on screen.
-    final folded = _fareDone;
-
     return [
-      // What kind of job. It comes first because it changes what everything
-      // below it means, and it is never hidden.
+      // What kind of job (Ride or Delivery/Courier)
       Row(
         children: [
           _kindTab('RIDE', Icons.two_wheeler, t('ask.ride')),
@@ -882,116 +855,54 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           _kindTab('COURIER', Icons.inventory_2, t('ask.courier')),
         ],
       ),
+      const SizedBox(height: 12),
+
+      // From (pickup)
+      ..._fromField(),
+      const SizedBox(height: 12),
+
+      // To (destination)
+      ..._toField(),
+      const SizedBox(height: 12),
+
+      // If courier: parcel note
+      if (_kind == 'COURIER') ...[
+        _label(t('motari.request.parcel_note')),
+        TextField(
+          controller: _parcelNote,
+          textCapitalization: TextCapitalization.sentences,
+          style: const TextStyle(color: Brand.text, fontSize: 13),
+          decoration: InputDecoration(
+            hintText: t('motari.request.parcel_note'),
+            prefixIcon: const Icon(Icons.inventory_2_outlined, size: 15, color: Brand.orange),
+            prefixIconConstraints: const BoxConstraints(minWidth: 36),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+
+      // Money (Fare offer)
+      ..._fareField(),
+      const SizedBox(height: 12),
+
+      // Phone
+      _phoneField(),
       const SizedBox(height: 14),
 
-      if (folded) ...[
-        _folded(
-          dot: Brand.orange,
-          label: t('ask.from'),
-          value: _pickupName ?? t('ask.my_location'),
-          onEdit: () => setState(() => _open = _Ask.from),
-        ),
-        _folded(
-          dot: Brand.green,
-          label: t('ask.to_label'),
-          value: _destText.text.trim().isEmpty
-              ? t('ask.no_destination')
-              : _destText.text.trim(),
-          onEdit: () => setState(() => _open = _Ask.to),
-        ),
-        _folded(
-          dot: Brand.orange,
-          label: t('ask.fare_label'),
-          value: rwf(_namedFare),
-          onEdit: () => setState(() => _open = _Ask.fare),
-        ),
-      ] else
-        ..._places(),
-
-      // Reopening a folded line puts just that one back, above everything else.
-      if (folded && _open != null) ...[
-        const SizedBox(height: 4),
-        ...switch (_open!) {
-          _Ask.from => _fromField(),
-          _Ask.to => _toField(),
-          _Ask.fare => _fareField(),
-          _Ask.who => const <Widget>[],
-        },
-        const SizedBox(height: 8),
-        _quietButton(label: t('ask.done'), onTap: _collapse),
-      ],
-
-      // The money. It arrives once there is somewhere to go, because before
-      // that there is nothing to price.
-      if (_placesDone && !folded) ...[
-        const SizedBox(height: 14),
-        ..._fareField(),
-      ],
-
-      // And the passenger, once the money is agreed.
-      if (_fareDone && _open == null) ...[
-        const SizedBox(height: 14),
-        ..._whoFields(),
-      ],
+      // Request CTA button: always present
+      PrimaryButton(
+        label: _busy
+            ? t('ask.asking')
+            : _kind == 'COURIER' ? t('ask.find_delivery') : t('ask.find'),
+        icon: Icons.search,
+        onPressed: _canRequest ? _request : null,
+      ),
+      const SizedBox(height: 6),
+      Text(t('ask.no_account'), textAlign: TextAlign.center, style: Brand.micro),
     ];
   }
 
-  /// The two places, shown together: a passenger can see the whole journey they
-  /// are asking for rather than one end of it.
-  List<Widget> _places() => [
-        ..._fromField(),
-        const SizedBox(height: 10),
-        ..._toField(),
-      ];
 
-  /// One answered line: what it says, and a way to change it.
-  Widget _folded({
-    required Color dot,
-    required String label,
-    required String value,
-    required VoidCallback onEdit,
-  }) =>
-      GestureDetector(
-        onTap: onEdit,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: Row(
-            children: [
-              Container(
-                width: 8,
-                height: 8,
-                decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 46,
-                child: Text(label.toUpperCase(), style: Brand.micro),
-              ),
-              Expanded(
-                child: Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: Brand.text, fontSize: 12.5, fontWeight: FontWeight.w700),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: Brand.surface,
-                  border: Border.all(color: Brand.line),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.edit_outlined, size: 12, color: Brand.orange),
-              ),
-            ],
-          ),
-        ),
-      );
 
   /// A small heading over a field, so every part of the sheet says what it is.
   Widget _label(String text, {String? hint}) => Padding(
@@ -1027,6 +938,24 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         ),
         ..._resultsFor(_Field.pickup),
 
+        if (_pickup == null && _pickupText.text.trim().length >= 2 && !_searching) ...[
+          const SizedBox(height: 8),
+          _typedAddressCard(
+            text: _pickupText.text.trim(),
+            isPickup: true,
+            onTap: () {
+              final dev = _device;
+              final here = dev != null ? LatLng(dev.latitude, dev.longitude) : _kigali;
+              setState(() {
+                _pickup = here;
+                _pickupName = _pickupText.text.trim();
+              });
+              _refreshQuote();
+              _collapse();
+            },
+          ),
+        ],
+
         // The phone knows where it is, but only says so when asked.
         if (_device != null) ...[
           const SizedBox(height: 8),
@@ -1050,17 +979,17 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         ),
         ..._resultsFor(_Field.dest),
 
-        // Typed something the map has never heard of: that is still a place,
-        // and the price becomes the passenger's to name.
+        // Typed something the map has never heard of or custom address:
         if (_typedOnly && !_searching) ...[
           const SizedBox(height: 8),
-          Text(t('ask.not_on_map'), style: Brand.micro),
-          const SizedBox(height: 8),
-          _bigButton(
-            icon: Icons.check,
-            label: t('ask.use_what_i_typed'),
+          _typedAddressCard(
+            text: _destText.text.trim(),
             onTap: () {
-              setState(() => _toSettled = true);
+              setState(() {
+                _dest = null;
+                _toSettled = true;
+              });
+              _refreshQuote();
               _collapse();
             },
           ),
@@ -1149,53 +1078,85 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     ];
   }
 
-  /* ── who is asking ────────────────────────────────────────────────────── */
+  /* ── who is asking (phone number) ─────────────────────────────────────── */
 
-  List<Widget> _whoFields() => [
-        _label(t('ask.you_label'), hint: t('ask.who_why')),
-
-        TextField(
-          controller: _name,
-          textCapitalization: TextCapitalization.words,
-          onChanged: (_) => setState(() {}),
-          style: const TextStyle(color: Brand.text, fontSize: 13),
-          decoration: InputDecoration(
-            hintText: t('ask.your_name'),
-            prefixIcon: const Icon(Icons.person_outline, size: 15, color: Brand.dim),
-            prefixIconConstraints: const BoxConstraints(minWidth: 36),
+  Widget _phoneField() => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _label(t('ask.phone'), hint: '07xxxxxxxx'),
+          TextField(
+            controller: _phone,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.digitsOnly,
+              LengthLimitingTextInputFormatter(10),
+            ],
+            onChanged: (_) => setState(() {}),
+            style: const TextStyle(color: Brand.text, fontSize: 13),
+            decoration: const InputDecoration(
+              hintText: '07xxxxxxxx',
+              prefixIcon: Icon(Icons.call_outlined, size: 15, color: Brand.dim),
+              prefixIconConstraints: BoxConstraints(minWidth: 36),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _phone,
-          keyboardType: TextInputType.number,
-          inputFormatters: [
-            FilteringTextInputFormatter.digitsOnly,
-            LengthLimitingTextInputFormatter(10),
-          ],
-          onChanged: (_) => setState(() {}),
-          style: const TextStyle(color: Brand.text, fontSize: 13),
-          decoration: const InputDecoration(
-            hintText: '07xxxxxxxx',
-            prefixIcon: Icon(Icons.call_outlined, size: 15, color: Brand.dim),
-            prefixIconConstraints: BoxConstraints(minWidth: 36),
-          ),
-        ),
-
-        // The button arrives only when there is something to press it for.
-        if (_whoDone) ...[
-          const SizedBox(height: 14),
-          PrimaryButton(
-            label: _busy
-                ? t('ask.asking')
-                : _kind == 'COURIER' ? t('ask.find_delivery') : t('ask.find'),
-            icon: Icons.search,
-            onPressed: _canRequest ? _request : null,
-          ),
-          const SizedBox(height: 6),
-          Text(t('ask.no_account'), textAlign: TextAlign.center, style: Brand.micro),
         ],
-      ];
+      );
+
+  Widget _typedAddressCard({
+    required String text,
+    bool isPickup = false,
+    required VoidCallback onTap,
+  }) {
+    final active = isPickup ? _pickup != null : _toSettled;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: active ? const Color(0xFF14532D) : const Color(0xFF1C130B),
+          border: Border.all(color: active ? Brand.green : Brand.orange),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              active ? Icons.check_circle : Icons.pin_drop,
+              size: 16,
+              color: active ? Brand.green : Brand.orange,
+            ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    active
+                        ? '${t('ask.using_typed')}: "$text"'
+                        : '${t('ask.send_typed')}: "$text"',
+                    style: const TextStyle(
+                        color: Brand.text, fontSize: 12, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    active
+                        ? t('ask.typed_ready')
+                        : t('ask.not_on_map'),
+                    style: const TextStyle(color: Brand.muted, fontSize: 10.5),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              active ? Icons.check : Icons.arrow_forward_ios,
+              size: 12,
+              color: active ? Brand.green : Brand.orange,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   /* ── the pieces the questions are made of ─────────────────────────────── */
 
@@ -1328,29 +1289,48 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   List<Widget> _resultsFor(_Field field) {
     if (_field != field || _found.isEmpty) return const [];
     return [
-      const SizedBox(height: 4),
-      for (final place in _found)
-        GestureDetector(
-          onTap: () => _pick(place),
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 9),
-            child: Row(
-              children: [
-                const Icon(Icons.north_east, size: 12, color: Brand.dim),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Text(
-                    place.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Brand.text, fontSize: 12.5),
+      const SizedBox(height: 6),
+      Container(
+        constraints: const BoxConstraints(maxHeight: 220),
+        decoration: BoxDecoration(
+          color: Brand.surface,
+          border: Border.all(color: Brand.line),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: ListView.separated(
+            shrinkWrap: true,
+            padding: EdgeInsets.zero,
+            itemCount: _found.length,
+            separatorBuilder: (context, index) => const Divider(height: 1, color: Brand.line),
+            itemBuilder: (context, i) {
+              final place = _found[i];
+              return InkWell(
+                onTap: () => _pick(place),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.place_outlined, size: 14, color: Brand.orange),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          place.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Brand.text, fontSize: 12, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ),
+      ),
     ];
   }
 

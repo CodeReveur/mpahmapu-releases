@@ -75,7 +75,12 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   MotariProfile? get _profile => _state?.profile;
   Ride? get _ride => _state?.activeRide;
   Offer? get _offer => _state?.offer;
-  bool get _online => _profile?.online ?? false;
+  bool get isMandatoryOnlineHours {
+    final h = DateTime.now().hour;
+    return h >= 5 && h < 21;
+  }
+
+  bool get _online => isMandatoryOnlineHours || (_profile?.online ?? false);
 
   @override
   void initState() {
@@ -276,6 +281,11 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         _offerLeft = 0;
       }
     });
+    if (isMandatoryOnlineHours && next.profile != null && !next.profile!.online && !_busy) {
+      widget.api.setOnline(true).then((s) {
+        if (mounted) setState(() => _state = s);
+      }).catchError((_) {});
+    }
     _updateRinging(offer);
   }
 
@@ -687,6 +697,9 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   }
 
   Widget _onlineButton() {
+    if (isMandatoryOnlineHours) {
+      return const SizedBox.shrink();
+    }
     final online = _online;
     final blocked = _ride != null || _profile == null;
     return GestureDetector(
