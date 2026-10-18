@@ -211,9 +211,45 @@ class _RidePanelState extends State<RidePanel> {
       Text(t('panel.waiting_caps', {'count': nearby.length}), style: Brand.micro),
       const SizedBox(height: 8),
       if (nearby.isEmpty)
-        Text(
-          t('panel.no_requests'),
-          style: const TextStyle(color: Brand.dim, fontSize: 12),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF141414),
+            border: Border.all(color: const Color(0xFF2C2C2C)),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF4ADE80),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Active On Road · Radar Active',
+                    style: TextStyle(
+                      color: Color(0xFF4ADE80),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                t('panel.no_requests'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF888888), fontSize: 11.5, height: 1.4),
+              ),
+            ],
+          ),
         )
       else
         ...nearby.map(_nearbyRow),

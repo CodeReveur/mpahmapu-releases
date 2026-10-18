@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 class Brand {
   static const orange = Color(0xFFF97316);
   static const black = Color(0xFF000000);
-  static const surface = Color(0xFF0A0A0A);
-  static const line = Color(0xFF1F1F1F);
+  static const surface = Color(0xFF141414);
+  static const line = Color(0xFF2C2C2C);
   static const text = Color(0xFFFFFFFF);
-  static const muted = Color(0xFF888888);
-  static const dim = Color(0xFF555555);
+  static const muted = Color(0xFF9E9E9E);
+  static const dim = Color(0xFF737373);
   static const green = Color(0xFF4ADE80);
   static const amber = Color(0xFFFBBF24);
   static const red = Color(0xFFF87171);
@@ -38,20 +38,20 @@ class Brand {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: surface,
-          hintStyle: const TextStyle(color: Color(0xFF4A4A4A), fontSize: 13),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          fillColor: const Color(0xFF161616),
+          hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12.5),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: line),
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFF2E2E2E)),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: line),
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFF2E2E2E)),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: orange),
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: orange, width: 1.5),
           ),
         ),
       );
@@ -103,13 +103,14 @@ class PrimaryButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: enabled ? background : const Color(0xFF1A1A1A),
-          foregroundColor: enabled ? Colors.black : Brand.dim,
-          disabledBackgroundColor: const Color(0xFF1A1A1A),
-          disabledForegroundColor: Brand.dim,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 13),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          backgroundColor: enabled ? background : const Color(0xFF20160D),
+          foregroundColor: enabled ? Colors.black : const Color(0xFF8E8E93),
+          disabledBackgroundColor: const Color(0xFF20160D),
+          disabledForegroundColor: const Color(0xFF8E8E93),
+          side: enabled ? null : const BorderSide(color: Color(0xFF3D2512)),
+          elevation: enabled ? 1 : 0,
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -117,7 +118,7 @@ class PrimaryButton extends StatelessWidget {
             if (icon != null) ...[Icon(icon, size: 15), const SizedBox(width: 7)],
             Text(
               label.toUpperCase(),
-              style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900, letterSpacing: 0.6),
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5),
             ),
           ],
         ),

@@ -77,10 +77,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   bool _minimised = false;
 
 
-  /// The destination question has been answered — with a place, with text the
-  /// map did not know, or with "no destination, run the meter". Typing alone
-  /// does not settle it, because half a word is not an answer.
-  bool _toSettled = false;
+
 
   /// Looking up the name of the phone's own fix.
   bool _locating = false;
@@ -315,16 +312,11 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       } else {
         _dest = place;
         _destText.text = place.label;
-        _toSettled = true;
       }
       _found = const [];
     });
     _refreshQuote();
   }
-
-  /// A place the map has never heard of is still a place. The passenger names
-  /// their own price for it, because there is no route to measure.
-  bool get _typedOnly => _dest == null && _destText.text.trim().isNotEmpty;
 
   bool get _measurable => _dest != null;
 
@@ -479,7 +471,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       _fare.clear();
       _found = const [];
       _error = null;
-      _toSettled = false;
       _fareTouched = false;
       _minimised = false;
     });
@@ -710,12 +701,12 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   Widget _sheet() => Container(
         width: double.infinity,
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.74,
+          maxHeight: MediaQuery.of(context).size.height * 0.58,
         ),
         decoration: BoxDecoration(
           color: Brand.black.withValues(alpha: 0.97),
           border: const Border(top: BorderSide(color: Brand.line)),
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
         ),
         child: SafeArea(
           top: false,
@@ -726,10 +717,10 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
               Flexible(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.fromLTRB(
-                    14,
-                    2,
-                    14,
-                    14 + MediaQuery.of(context).viewInsets.bottom,
+                    12,
+                    0,
+                    12,
+                    10 + MediaQuery.of(context).viewInsets.bottom,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -765,12 +756,12 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         },
         behavior: HitTestBehavior.opaque,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(0, 9, 0, 4),
+          padding: const EdgeInsets.fromLTRB(0, 5, 0, 1),
           child: Column(
             children: [
               Container(
-                width: 38,
-                height: 4,
+                width: 32,
+                height: 3,
                 decoration: BoxDecoration(
                   color: const Color(0xFF333333),
                   borderRadius: BorderRadius.circular(999),
@@ -847,310 +838,539 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   List<Widget> _requestForm() {
     return [
-      // What kind of job (Ride or Delivery/Courier)
+      // 1. Kind tabs (Ride vs Delivery) + active supply counter
       Row(
         children: [
-          _kindTab('RIDE', Icons.two_wheeler, t('ask.ride')),
-          const SizedBox(width: 6),
-          _kindTab('COURIER', Icons.inventory_2, t('ask.courier')),
+          _kindTab('RIDE', Icons.two_wheeler, t('ask.ride_tab')),
+          const SizedBox(width: 8),
+          _kindTab('COURIER', Icons.inventory_2_outlined, t('ask.delivery_tab')),
+          const Spacer(),
+          if (_supply != null)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: _supply!.active > 0
+                    ? const Color(0xFF14532D).withValues(alpha: 0.3)
+                    : const Color(0xFF1F1F1F),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: _supply!.active > 0
+                      ? const Color(0xFF22C55E).withValues(alpha: 0.4)
+                      : const Color(0xFF2E2E2E),
+                ),
+              ),
+              child: Text(
+                _supply!.active > 0 ? '${_supply!.active} active' : 'Searching',
+                style: TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w700,
+                  color: _supply!.active > 0 ? Brand.green : const Color(0xFF888888),
+                ),
+              ),
+            ),
         ],
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 8),
 
-      // From (pickup)
-      ..._fromField(),
-      const SizedBox(height: 12),
+      // 2. Compact unified route card (From & To)
+      _routeCard(),
 
-      // To (destination)
-      ..._toField(),
-      const SizedBox(height: 12),
+      // 3. Address suggestions / typed address dropdown
+      ..._resultsFor(_field),
 
-      // If courier: parcel note
+      // 4. Parcel note if courier
       if (_kind == 'COURIER') ...[
-        _label(t('motari.request.parcel_note')),
-        TextField(
-          controller: _parcelNote,
-          textCapitalization: TextCapitalization.sentences,
-          style: const TextStyle(color: Brand.text, fontSize: 13),
-          decoration: InputDecoration(
-            hintText: t('motari.request.parcel_note'),
-            prefixIcon: const Icon(Icons.inventory_2_outlined, size: 15, color: Brand.orange),
-            prefixIconConstraints: const BoxConstraints(minWidth: 36),
+        const SizedBox(height: 7),
+        Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF161616),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF2E2E2E)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.inventory_2_outlined, size: 13, color: Brand.orange),
+              const SizedBox(width: 6),
+              Expanded(
+                child: TextField(
+                  controller: _parcelNote,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(color: Brand.text, fontSize: 12),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    fillColor: Colors.transparent,
+                    hintText: t('motari.request.parcel_note'),
+                    hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 11),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 12),
       ],
+      const SizedBox(height: 8),
 
-      // Money (Fare offer)
-      ..._fareField(),
-      const SizedBox(height: 12),
+      // 5. Fare offer & Phone number side-by-side
+      _fareAndPhoneRow(),
+      const SizedBox(height: 9),
 
-      // Phone
-      _phoneField(),
-      const SizedBox(height: 14),
-
-      // Request CTA button: always present
+      // 6. Action CTA button (Request Ride / Request Delivery)
       PrimaryButton(
         label: _busy
             ? t('ask.asking')
-            : _kind == 'COURIER' ? t('ask.find_delivery') : t('ask.find'),
-        icon: Icons.search,
+            : _kind == 'COURIER' ? t('ask.request_delivery') : t('ask.request_ride'),
+        icon: _kind == 'COURIER' ? Icons.local_shipping_outlined : Icons.two_wheeler,
         onPressed: _canRequest ? _request : null,
       ),
-      const SizedBox(height: 6),
-      Text(t('ask.no_account'), textAlign: TextAlign.center, style: Brand.micro),
+      const SizedBox(height: 4),
+      Text(
+        t('ask.footer_trust'),
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Color(0xFF777777),
+          fontSize: 9.5,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     ];
   }
 
 
 
-  /// A small heading over a field, so every part of the sheet says what it is.
-  Widget _label(String text, {String? hint}) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(
-          children: [
-            Text(text.toUpperCase(), style: Brand.micro),
-            if (hint != null) ...[
-              const SizedBox(width: 8),
+  /* ── compact unified route card (From & To) ────────────────────────── */
+
+  Widget _routeCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF161616),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFF2E2E2E)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Pickup row
+          Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Icon(Icons.circle, size: 8, color: Brand.orange),
+              ),
               Expanded(
-                child: Text(
-                  hint,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(color: Brand.dim, fontSize: 10.5),
+                child: TextField(
+                  controller: _pickupText,
+                  style: const TextStyle(color: Brand.text, fontSize: 12.5),
+                  onTap: () => setState(() => _field = _Field.pickup),
+                  onChanged: (v) => _onTyped(_Field.pickup, v),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 9, horizontal: 0),
+                    hintText: t('ask.pickup_location'),
+                    hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    fillColor: Colors.transparent,
+                  ),
+                ),
+              ),
+              if (_pickupText.text.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _pickupText.clear();
+                      _pickup = null;
+                      _pickupName = null;
+                      _found = const [];
+                    });
+                    _refreshQuote();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 5),
+                    child: Icon(Icons.close, size: 14, color: Color(0xFF777777)),
+                  ),
+                ),
+              GestureDetector(
+                onTap: _locating ? null : _useMyLocation,
+                child: Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF222222),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFF333333)),
+                  ),
+                  child: _locating
+                      ? const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.5, color: Brand.orange),
+                        )
+                      : const Icon(Icons.my_location, size: 13, color: Brand.orange),
                 ),
               ),
             ],
-          ],
-        ),
-      );
-
-  /* ── where from ───────────────────────────────────────────────────────── */
-
-  List<Widget> _fromField() => [
-        _label(t('ask.from'), hint: _device == null ? null : t('ask.tap_map_hint')),
-        _placeField(
-          field: _Field.pickup,
-          controller: _pickupText,
-          dot: Brand.orange,
-          hint: t('ask.from_required'),
-        ),
-        ..._resultsFor(_Field.pickup),
-
-        if (_pickup == null && _pickupText.text.trim().length >= 2 && !_searching) ...[
-          const SizedBox(height: 8),
-          _typedAddressCard(
-            text: _pickupText.text.trim(),
-            isPickup: true,
-            onTap: () {
-              final dev = _device;
-              final here = dev != null ? LatLng(dev.latitude, dev.longitude) : _kigali;
-              setState(() {
-                _pickup = here;
-                _pickupName = _pickupText.text.trim();
-              });
-              _refreshQuote();
-              _collapse();
-            },
+          ),
+          Container(
+            margin: const EdgeInsets.only(left: 32, right: 8),
+            height: 1,
+            color: const Color(0xFF262626),
+          ),
+          // Destination row
+          Row(
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10),
+                child: Icon(Icons.location_on, size: 12, color: Brand.green),
+              ),
+              Expanded(
+                child: TextField(
+                  controller: _destText,
+                  style: const TextStyle(color: Brand.text, fontSize: 12.5),
+                  onTap: () => setState(() => _field = _Field.dest),
+                  onChanged: (v) => _onTyped(_Field.dest, v),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 9, horizontal: 0),
+                    hintText: _kind == 'COURIER'
+                        ? t('ask.destination_required')
+                        : t('ask.destination_optional'),
+                    hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    fillColor: Colors.transparent,
+                  ),
+                ),
+              ),
+              if (_destText.text.isNotEmpty)
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _destText.clear();
+                      _dest = null;
+                      _found = const [];
+                    });
+                    _refreshQuote();
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 8),
+                    child: Icon(Icons.close, size: 14, color: Color(0xFF777777)),
+                  ),
+                ),
+            ],
           ),
         ],
+      ),
+    );
+  }
 
-        // The phone knows where it is, but only says so when asked.
-        if (_device != null) ...[
-          const SizedBox(height: 8),
-          _bigButton(
-            icon: Icons.my_location,
-            label: _locating ? t('ask.locating') : t('ask.use_my_location'),
-            onTap: _locating ? null : _useMyLocation,
-          ),
-        ],
-      ];
+  /* ── fare and phone side-by-side ────────────────────────────────────── */
 
-  /* ── where to ─────────────────────────────────────────────────────────── */
-
-  List<Widget> _toField() => [
-        _label(_kind == 'COURIER' ? t('ask.to_label_parcel') : t('ask.to_label')),
-        _placeField(
-          field: _Field.dest,
-          controller: _destText,
-          dot: Brand.green,
-          hint: _kind == 'COURIER' ? t('ask.to_required') : t('ask.to'),
-        ),
-        ..._resultsFor(_Field.dest),
-
-        // Typed something the map has never heard of or custom address:
-        if (_typedOnly && !_searching) ...[
-          const SizedBox(height: 8),
-          _typedAddressCard(
-            text: _destText.text.trim(),
-            onTap: () {
-              setState(() {
-                _dest = null;
-                _toSettled = true;
-              });
-              _refreshQuote();
-              _collapse();
-            },
-          ),
-        ],
-
-        // A ride with nowhere named runs on the meter, which is a real answer.
-        if (_kind == 'RIDE' && _destText.text.trim().isEmpty) ...[
-          const SizedBox(height: 8),
-          _quietButton(
-            label: t('ask.no_destination_button'),
-            onTap: () {
-              setState(() {
-                _dest = null;
-                _toSettled = true;
-              });
-              _refreshQuote();
-              _collapse();
-            },
-          ),
-        ],
-      ];
-
-  /* ── how much ─────────────────────────────────────────────────────────── */
-
-  List<Widget> _fareField() {
+  Widget _fareAndPhoneRow() {
     final quote = _quote;
     final min = _minFare;
     final named = _namedFare;
     final tooLittle = named != null && min > 0 && named < min;
 
-    return [
-      // A route the app measured gives a price to agree with; a place only the
-      // passenger knows leaves the price to them.
-      _label(
-        _pricedByRoute ? t('ask.approx_amount') : t('ask.q_fare'),
-        hint: _pricedByRoute && quote?.distanceM != null ? km(quote!.distanceM) : null,
-      ),
-
-      if (_pricedByRoute)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(t('ask.approx_hint'),
-              style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.4)),
-        )
-      else if (quote != null && !_measurable)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            t('ask.meter_card', {
-              'base': rwf(quote.baseFareRwf),
-              'perKm': rwf(quote.perKmRwf),
-            }),
-            style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.4),
-          ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            // Left: Fare Offer (RWF)
+            Expanded(
+              flex: 5,
+              child: Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161616),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: tooLittle ? Brand.amber : const Color(0xFF2E2E2E),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Text(
+                      'RWF',
+                      style: TextStyle(
+                        color: Brand.orange,
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: TextField(
+                        controller: _fare,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        onChanged: (_) => setState(() => _fareTouched = true),
+                        style: const TextStyle(
+                          color: Brand.text,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          fillColor: Colors.transparent,
+                          hintText: min > 0 ? '$min' : t('ask.fare_hint'),
+                          hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 11.5),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Right: Phone Number
+            Expanded(
+              flex: 6,
+              child: Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF161616),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF2E2E2E)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.phone_outlined, size: 13, color: Brand.orange),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: TextField(
+                        controller: _phone,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(10),
+                        ],
+                        onChanged: (_) => setState(() {}),
+                        style: const TextStyle(
+                          color: Brand.text,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          fillColor: Colors.transparent,
+                          hintText: '078 000 0000',
+                          hintStyle: TextStyle(color: Color(0xFF888888), fontSize: 11.5),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
-
-      TextField(
-        controller: _fare,
-        keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-        onChanged: (_) => setState(() => _fareTouched = true),
-        style: const TextStyle(
-            color: Brand.orange, fontSize: 19, fontWeight: FontWeight.w900),
-        decoration: InputDecoration(
-          hintText: min > 0 ? t('ask.at_least', {'amount': rwf(min)}) : 'RWF',
-          // The currency sits in the field rather than in the number, so what
-          // the passenger types is only ever the amount.
-          prefixIcon: const Padding(
-            padding: EdgeInsets.only(left: 12, right: 8),
-            child: Center(
-              widthFactor: 0,
-              child: Text('RWF',
-                  style: TextStyle(
-                      color: Brand.dim, fontSize: 11, fontWeight: FontWeight.w800)),
+        if (tooLittle)
+          Padding(
+            padding: const EdgeInsets.only(top: 4, left: 2),
+            child: Text(
+              t('ask.too_little', {'amount': rwf(min)}),
+              style: const TextStyle(color: Brand.amber, fontSize: 10),
+            ),
+          )
+        else if (_pricedByRoute && quote?.distanceM != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 3, left: 2),
+            child: Text(
+              '${km(quote!.distanceM)} route · Est. ${rwf(quote.quotedFareRwf)}',
+              style: const TextStyle(color: Color(0xFF888888), fontSize: 10),
             ),
           ),
-          prefixIconConstraints: const BoxConstraints(minWidth: 30),
+      ],
+    );
+  }
+
+  /* ── address suggestions with custom typed address option ─────────── */
+
+  List<Widget> _resultsFor(_Field field) {
+    final controller = field == _Field.dest ? _destText : _pickupText;
+    final text = controller.text.trim();
+    if (_field != field || text.length < 2) return const [];
+
+    return [
+      const SizedBox(height: 5),
+      Container(
+        constraints: const BoxConstraints(maxHeight: 180),
+        decoration: BoxDecoration(
+          color: const Color(0xFF141414),
+          border: Border.all(color: const Color(0xFF2E2E2E)),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: ListView(
+            shrinkWrap: true,
+            padding: EdgeInsets.zero,
+            children: [
+              // 1. "Use: ..." option with app brand background color
+              InkWell(
+                onTap: () {
+                  if (field == _Field.dest) {
+                    setState(() {
+                      _dest = Place(label: text, fullName: text, latitude: 0, longitude: 0);
+                      _found = const [];
+                    });
+                    _refreshQuote();
+                  } else {
+                    final dev = _device;
+                    final here = dev != null ? LatLng(dev.latitude, dev.longitude) : _kigali;
+                    setState(() {
+                      _pickup = here;
+                      _pickupName = text;
+                      _found = const [];
+                    });
+                    _refreshQuote();
+                  }
+                  _collapse();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                  color: const Color(0xFF261509),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Brand.orange,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Icon(Icons.edit_location_alt, size: 12, color: Colors.black),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Use: "$text"',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Brand.text,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              t('ask.send_typed_note'),
+                              style: TextStyle(
+                                color: Brand.orange.withValues(alpha: 0.85),
+                                fontSize: 9.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(Icons.arrow_forward_ios, size: 10, color: Brand.orange),
+                    ],
+                  ),
+                ),
+              ),
+
+              if (_searching)
+                const Padding(
+                  padding: EdgeInsets.all(10),
+                  child: Center(
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 1.5, color: Brand.orange),
+                    ),
+                  ),
+                )
+              else
+                ..._found.map(
+                  (place) => InkWell(
+                    onTap: () => _pick(place),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      decoration: const BoxDecoration(
+                        border: Border(top: BorderSide(color: Color(0xFF222222))),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.location_on_outlined, size: 13, color: Brand.orange),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              place.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Brand.text,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
-
-      if (tooLittle) ...[
-        const SizedBox(height: 6),
-        Text(t('ask.too_little', {'amount': rwf(min)}),
-            style: const TextStyle(color: Brand.amber, fontSize: 11)),
-      ],
     ];
   }
 
-  /* ── who is asking (phone number) ─────────────────────────────────────── */
-
-  Widget _phoneField() => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _label(t('ask.phone'), hint: '07xxxxxxxx'),
-          TextField(
-            controller: _phone,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(10),
-            ],
-            onChanged: (_) => setState(() {}),
-            style: const TextStyle(color: Brand.text, fontSize: 13),
-            decoration: const InputDecoration(
-              hintText: '07xxxxxxxx',
-              prefixIcon: Icon(Icons.call_outlined, size: 15, color: Brand.dim),
-              prefixIconConstraints: BoxConstraints(minWidth: 36),
-            ),
-          ),
-        ],
-      );
-
-  Widget _typedAddressCard({
-    required String text,
-    bool isPickup = false,
-    required VoidCallback onTap,
-  }) {
-    final active = isPickup ? _pickup != null : _toSettled;
+  Widget _kindTab(String kind, IconData icon, String label) {
+    final on = _kind == kind;
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      onTap: () {
+        setState(() {
+          _kind = kind;
+          _fare.clear();
+          _fareTouched = false;
+        });
+        _refreshQuote();
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? const Color(0xFF14532D) : const Color(0xFF1C130B),
-          border: Border.all(color: active ? Brand.green : Brand.orange),
-          borderRadius: BorderRadius.circular(10),
+          color: on ? Brand.orange : const Color(0xFF181818),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: on ? Brand.orange : const Color(0xFF2E2E2E),
+          ),
         ),
         child: Row(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              active ? Icons.check_circle : Icons.pin_drop,
-              size: 16,
-              color: active ? Brand.green : Brand.orange,
-            ),
-            const SizedBox(width: 9),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    active
-                        ? '${t('ask.using_typed')}: "$text"'
-                        : '${t('ask.send_typed')}: "$text"',
-                    style: const TextStyle(
-                        color: Brand.text, fontSize: 12, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    active
-                        ? t('ask.typed_ready')
-                        : t('ask.not_on_map'),
-                    style: const TextStyle(color: Brand.muted, fontSize: 10.5),
-                  ),
-                ],
+            Icon(icon, size: 13, color: on ? Colors.black : const Color(0xFF9E9E9E)),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                color: on ? Colors.black : const Color(0xFF9E9E9E),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w800,
               ),
-            ),
-            Icon(
-              active ? Icons.check : Icons.arrow_forward_ios,
-              size: 12,
-              color: active ? Brand.green : Brand.orange,
             ),
           ],
         ),
@@ -1158,10 +1378,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     );
   }
 
-  /* ── the pieces the questions are made of ─────────────────────────────── */
-
-  /// The phone's own fix, taken only when asked for, and named so it reads as a
-  /// place rather than as a dot.
   Future<void> _useMyLocation() async {
     final at = _device;
     if (at == null) return;
@@ -1179,205 +1395,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     _map.move(here, 16);
     _refreshQuote();
     _collapse();
-  }
-
-  Widget _bigButton({
-    required IconData icon,
-    required String label,
-    VoidCallback? onTap,
-  }) =>
-      SizedBox(
-        width: double.infinity,
-        child: ElevatedButton.icon(
-          onPressed: onTap,
-          icon: Icon(icon, size: 15),
-          label: Text(
-            label.toUpperCase(),
-            style: const TextStyle(
-                fontSize: 11.5, fontWeight: FontWeight.w900, letterSpacing: 0.6),
-          ),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: onTap == null ? const Color(0xFF1A1A1A) : Brand.orange,
-            foregroundColor: onTap == null ? Brand.dim : Colors.black,
-            disabledBackgroundColor: const Color(0xFF1A1A1A),
-            disabledForegroundColor: Brand.dim,
-            elevation: 0,
-            padding: const EdgeInsets.symmetric(vertical: 13),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        ),
-      );
-
-  Widget _quietButton({required String label, required VoidCallback onTap}) =>
-      SizedBox(
-        width: double.infinity,
-        child: OutlinedButton(
-          onPressed: onTap,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Brand.muted,
-            side: const BorderSide(color: Brand.line),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-          child: Text(
-            label.toUpperCase(),
-            style: const TextStyle(
-                fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.6),
-          ),
-        ),
-      );
-
-  /// A place field: type into it, pick from what comes back, or clear it. The
-  /// pickup and the destination are the same thing pointed at different state.
-  Widget _placeField({
-    required _Field field,
-    required TextEditingController controller,
-    required Color dot,
-    required String hint,
-  }) {
-    final busy = _searching && _field == field;
-    return TextField(
-      controller: controller,
-      autofocus: true,
-      onChanged: (v) => _onTyped(field, v),
-      style: const TextStyle(color: Brand.text, fontSize: 13),
-      decoration: InputDecoration(
-        hintText: hint,
-        prefixIcon: Padding(
-          padding: const EdgeInsets.only(left: 13, right: 9),
-          child: Center(
-            widthFactor: 0,
-            child: Container(
-              width: 8,
-              height: 8,
-              decoration: BoxDecoration(color: dot, shape: BoxShape.circle),
-            ),
-          ),
-        ),
-        prefixIconConstraints: const BoxConstraints(minWidth: 30),
-        suffixIcon: busy
-            ? const Padding(
-                padding: EdgeInsets.all(12),
-                child: SizedBox(
-                  width: 13,
-                  height: 13,
-                  child: CircularProgressIndicator(strokeWidth: 1.6, color: Brand.dim),
-                ),
-              )
-            : controller.text.isEmpty
-                ? null
-                : IconButton(
-                    icon: const Icon(Icons.close, size: 14, color: Brand.dim),
-                    onPressed: () {
-                      setState(() {
-                        controller.clear();
-                        _found = const [];
-                        if (field == _Field.dest) {
-                          _dest = null;
-                          _toSettled = false;
-                        } else {
-                          _pickupName = null;
-                          _pickup = null;
-                        }
-                      });
-                    },
-                  ),
-      ),
-    );
-  }
-
-  List<Widget> _resultsFor(_Field field) {
-    if (_field != field || _found.isEmpty) return const [];
-    return [
-      const SizedBox(height: 6),
-      Container(
-        constraints: const BoxConstraints(maxHeight: 220),
-        decoration: BoxDecoration(
-          color: Brand.surface,
-          border: Border.all(color: Brand.line),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(9),
-          child: ListView.separated(
-            shrinkWrap: true,
-            padding: EdgeInsets.zero,
-            itemCount: _found.length,
-            separatorBuilder: (context, index) => const Divider(height: 1, color: Brand.line),
-            itemBuilder: (context, i) {
-              final place = _found[i];
-              return InkWell(
-                onTap: () => _pick(place),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.place_outlined, size: 14, color: Brand.orange),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          place.label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: Brand.text, fontSize: 12, fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    ];
-  }
-
-  Widget _kindTab(String kind, IconData icon, String label) {
-    final on = _kind == kind;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _kind = kind;
-            _fare.clear();
-            _fareTouched = false;
-            // A parcel must go somewhere, so switching to one reopens that
-            // question rather than carrying a metered ride's answer over.
-            if (kind == 'COURIER' && _destText.text.trim().isEmpty) {
-              _toSettled = false;
-            }
-          });
-          _refreshQuote();
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 9),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: on ? Brand.orange : Brand.surface,
-            border: Border.all(color: on ? Brand.orange : Brand.line),
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 13, color: on ? Colors.black : Brand.muted),
-              const SizedBox(width: 6),
-              Text(
-                label.toUpperCase(),
-                style: TextStyle(
-                  color: on ? Colors.black : Brand.muted,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.8,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
   }
 
   /* ── watching the ride ────────────────────────────────────────────────── */
