@@ -358,7 +358,7 @@ class MotariBackgroundService : Service() {
                 try {
                     pollPassengerRideInBackground()
                 } catch (_: Throwable) {}
-            }, 3, 4, TimeUnit.SECONDS)
+            }, 1, 5, TimeUnit.SECONDS)
         }
     }
 
@@ -400,14 +400,18 @@ class MotariBackgroundService : Service() {
         var token = prefs.getString("flutter.access_token", null)
         if (token.isNullOrBlank()) return
         val refresh = prefs.getString("flutter.refresh_token", null)
+        val wantOnline = isMandatoryOnlineHours() || prefs.getBoolean("flutter.motari_want_online", true)
 
         val loc = getLastKnownLocation()
-        var resp = if (loc != null) {
+        var resp = if (loc != null && wantOnline) {
             val body = JSONObject()
                 .put("lat", loc.latitude)
                 .put("lng", loc.longitude)
                 .toString()
             postJson("$API_BASE/api/rides/driver/heartbeat", body, token)
+        } else if (wantOnline) {
+            // Even without GPS lat/lng, recursively confirm active internet every 5s so motari stays online and can receive rides
+            postJson("$API_BASE/api/rides/driver/online", """{"online":true}""", token)
         } else {
             getJson("$API_BASE/api/rides/driver/state", token)
         }
@@ -416,7 +420,11 @@ class MotariBackgroundService : Service() {
             val newToken = refreshAccessToken(prefs, refresh)
             if (!newToken.isNullOrBlank()) {
                 token = newToken
-                resp = getJson("$API_BASE/api/rides/driver/state", token)
+                resp = if (wantOnline) {
+                    postJson("$API_BASE/api/rides/driver/online", """{"online":true}""", token)
+                } else {
+                    getJson("$API_BASE/api/rides/driver/state", token)
+                }
             }
         }
 
@@ -425,7 +433,7 @@ class MotariBackgroundService : Service() {
         val root = JSONObject(resp.second)
         val data = root.optJSONObject("data") ?: return
         val profile = data.optJSONObject("profile")
-        if (profile != null && !profile.optBoolean("online", false) && isMandatoryOnlineHours()) {
+        if (profile != null && !profile.optBoolean("online", false) && wantOnline) {
             postJson("$API_BASE/api/rides/driver/online", """{"online":true}""", token)
         }
 

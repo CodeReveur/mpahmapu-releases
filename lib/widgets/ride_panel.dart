@@ -255,18 +255,30 @@ class _RidePanelState extends State<RidePanel> {
         ),
       ];
 
+  bool get _isMandatoryOnline {
+    final now = DateTime.now().toUtc();
+    final kigaliHour = (now.hour + 2) % 24;
+    return kigaliHour >= 5 && kigaliHour < 21;
+  }
+
   /* ── waiting for work ─────────────────────────────────────────────────── */
 
   List<Widget> _waiting() {
     final online = widget.isOnline;
     final nearby = widget.state?.nearby ?? const <NearbyRide>[];
 
-    if (!online) {
-      final missingReason = !widget.hasData
-          ? 'Switch on Mobile Data so your phone can connect to the live map.'
-          : !widget.hasGps
-              ? 'Turn on GPS Location so passengers can locate you on the map.'
-              : 'Tap below to broadcast your live GPS location and go online.';
+    if (!online && !_isMandatoryOnline) {
+      return [
+        const SizedBox(height: 6),
+        PrimaryButton(
+          label: t('panel.go_online'),
+          icon: Icons.power_settings_new,
+          onPressed: widget.busy ? null : widget.onGoOnline,
+        ),
+      ];
+    }
+
+    if (!widget.hasData) {
       return [
         const SizedBox(height: 6),
         Container(
@@ -276,20 +288,16 @@ class _RidePanelState extends State<RidePanel> {
             border: Border.all(color: const Color(0xFF7C2D12)),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: Column(
+          child: const Column(
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.location_disabled, size: 15, color: Brand.amber),
-                  const SizedBox(width: 6),
+                  Icon(Icons.wifi_off, size: 15, color: Brand.amber),
+                  SizedBox(width: 6),
                   Text(
-                    !widget.hasData
-                        ? 'Offline · Mobile Data Required'
-                        : !widget.hasGps
-                            ? 'Offline · GPS Location Required'
-                            : t('panel.offline'),
-                    style: const TextStyle(
+                    'Offline · Switch On Mobile Data',
+                    style: TextStyle(
                       color: Brand.amber,
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
@@ -297,20 +305,14 @@ class _RidePanelState extends State<RidePanel> {
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
+              SizedBox(height: 6),
               Text(
-                missingReason,
+                'You will automatically go online every 5 seconds as soon as mobile data is on.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Color(0xFFBBBBBB), fontSize: 11.5, height: 1.4),
+                style: TextStyle(color: Color(0xFFBBBBBB), fontSize: 11.5, height: 1.4),
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 10),
-        PrimaryButton(
-          label: t('panel.go_online'),
-          icon: Icons.gps_fixed,
-          onPressed: widget.busy ? null : widget.onGoOnline,
         ),
       ];
     }

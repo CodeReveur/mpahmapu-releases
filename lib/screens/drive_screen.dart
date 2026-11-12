@@ -44,8 +44,8 @@ class DriveScreen extends StatefulWidget {
 }
 
 class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
-  static const _pollInterval = Duration(seconds: 3);
-  static const _heartbeatInterval = Duration(seconds: 3);
+  static const _pollInterval = Duration(seconds: 5);
+  static const _heartbeatInterval = Duration(seconds: 5);
   static final _kigali = LatLng(-1.9441, 30.0619);
 
   final _map = MapController();
@@ -93,9 +93,9 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     return kigaliHour >= 5 && kigaliHour < 21;
   }
 
-  /// A motari is only online when mobile data is active, GPS can locate them,
-  /// and the backend has confirmed their live heartbeat.
-  bool get _online => _networkOk && _fixUsable && (_profile?.online ?? false);
+  /// A motari is online whenever their device is on and internet/data is active
+  /// (even if GPS lat/lng is not yet available).
+  bool get _online => _networkOk && (isMandatoryOnlineHours || (_profile?.online ?? false));
 
   @override
   void initState() {
@@ -285,15 +285,18 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _sendHeartbeat() async {
-    final gpsOn = await Geolocator.isLocationServiceEnabled();
-    if (!gpsOn) {
-      if (mounted && _position != null) setState(() => _position = null);
-      return;
-    }
     final p = _position;
-    if (p == null || !_wantOnline || !_fixUsable) return;
+    final shouldBeOnline = isMandatoryOnlineHours || _wantOnline;
+    if (!shouldBeOnline) return;
     try {
-      final next = await widget.api.heartbeat(p.latitude, p.longitude);
+      final MotariState next;
+      if (p != null && _fixUsable) {
+        next = await widget.api.heartbeat(p.latitude, p.longitude);
+      } else {
+        // Even if no lat/lng yet, recursively confirm active internet every 5 seconds
+        // so the motari is online and can receive rides.
+        next = await widget.api.setOnline(true);
+      }
       if (mounted) {
         _networkOk = true;
         _apply(next);
@@ -308,39 +311,11 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
       _wantOnline = true;
       _error = null;
     });
-    final gpsOn = await Geolocator.isLocationServiceEnabled();
-    if (!gpsOn) {
-      if (mounted) {
-        setState(() {
-          _position = null;
-          _error = t('drive.allow_location');
-        });
-      }
-      return;
-    }
-    if (_position == null || !_fixUsable) {
-      await _watchPosition();
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            timeLimit: Duration(seconds: 6),
-          ),
-        );
-        if (mounted) setState(() => _position = pos);
-      } catch (_) {}
-    }
     final p = _position;
-    if (p == null || !_fixUsable) {
-      if (mounted) {
-        setState(() {
-          _error = t('drive.allow_location');
-        });
-      }
-      return;
-    }
     await _act(() async {
-      final next = await widget.api.heartbeat(p.latitude, p.longitude);
+      final next = (p != null && _fixUsable)
+          ? await widget.api.heartbeat(p.latitude, p.longitude)
+          : await widget.api.setOnline(true);
       _networkOk = true;
       return next;
     });
@@ -349,10 +324,6 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   /* ── state ────────────────────────────────────────────────────────────── */
 
   Future<void> _refresh() async {
-    final gpsOn = await Geolocator.isLocationServiceEnabled();
-    if (!gpsOn && mounted && _position != null) {
-      setState(() => _position = null);
-    }
     try {
       final next = await widget.api.state();
       if (!mounted) return;
@@ -362,7 +333,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         _loading = false;
         _error = null;
       });
-      if (_wantOnline && _fixUsable && !(next.profile?.online ?? false)) {
+      if ((isMandatoryOnlineHours || _wantOnline) && !(next.profile?.online ?? false)) {
         _sendHeartbeat();
       }
     } on ApiException catch (e) {
@@ -595,10 +566,11 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   const LanguageButton(),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: _onlineButton(),
-                  ),
+                  if (!isMandatoryOnlineHours)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: _onlineButton(),
+                    ),
                 ],
               ),
             ),
@@ -1002,16 +974,19 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   }
 
   Widget _onlineButton() {
+    if (isMandatoryOnlineHours) {
+      return const SizedBox.shrink();
+    }
     final online = _online;
     final blocked = _ride != null || _profile == null;
     return GestureDetector(
       onTap: blocked || _busy
           ? null
           : () {
-              if (online && !isMandatoryOnlineHours) {
+              if (online) {
                 setState(() => _wantOnline = false);
                 _act(() => widget.api.setOnline(false));
-              } else if (!online) {
+              } else {
                 _connectOnline();
               }
             },
@@ -1020,22 +995,18 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: Brand.black.withValues(alpha: 0.94),
-          border: Border.all(color: online ? const Color(0xFF14532D) : const Color(0xFF7F1D1D)),
+          border: Border.all(color: online ? const Color(0xFF14532D) : Brand.line),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              online ? Icons.gps_fixed : Icons.location_disabled,
-              size: 13,
-              color: online ? Brand.green : Brand.amber,
-            ),
+            Icon(Icons.power_settings_new, size: 13, color: online ? Brand.green : Brand.muted),
             const SizedBox(width: 6),
             Text(
               online ? t('drive.online') : t('drive.offline'),
               style: TextStyle(
-                color: online ? Brand.green : Brand.amber,
+                color: online ? Brand.green : Brand.muted,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.8,
