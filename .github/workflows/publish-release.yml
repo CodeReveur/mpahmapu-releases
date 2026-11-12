@@ -1,0 +1,44 @@
+name: Publish OTA Release
+
+on:
+  push:
+    branches:
+      - main
+      - production
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine release version tag
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [ -f motari-latest.version ]; then
+            VER=$(head -n 1 motari-latest.version | tr -d '[:space:]')
+            TAG="v${VER#v}"
+          else
+            TAG=""
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Publish GitHub Release with Motari.apk
+        if: steps.meta.outputs.tag != '' && hashFiles('Motari.apk') != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.tag }}
+          make_latest: true
+          files: |
+            Motari.apk
+            motari-latest.version
