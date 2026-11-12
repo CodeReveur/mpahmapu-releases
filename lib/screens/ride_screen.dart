@@ -112,6 +112,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   bool _busy = false;
   String? _error;
   bool _loading = true;
+  int _selectedStars = 0;
 
   @override
   void initState() {
@@ -578,6 +579,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     _release();
     setState(() {
       _ride = null;
+      _selectedStars = 0;
       _dest = null;
       _destText.clear();
       _fare.clear();
@@ -715,6 +717,18 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
               left: 14,
               child: _menuDropdown(),
             ),
+
+          // Large Passenger Rating Modal after Motari or Passenger confirms
+          if (_ride != null &&
+              _ride!.rating == null &&
+              (_ride!.status == 'CLOSED' ||
+                  (_ride!.status == 'COMPLETED' &&
+                      (_ride!.paymentStatus == 'PAID' ||
+                          _ride!.cashDeclaredAt != null ||
+                          _ride!.deliveryConfirmedAt != null))))
+            Positioned.fill(
+              child: _ratingModalOverlay(_ride!),
+            ),
         ],
       ),
     );
@@ -782,13 +796,14 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       for (final m in _supply!.motaris) {
         final isOccupied = m.occupied;
         final accent = isOccupied ? Brand.amber : Brand.green;
+        final ratingStr = (m.rating != null && m.rating! > 0 ? m.rating! : 5.0).toStringAsFixed(1);
         markers.add(Marker(
           point: LatLng(m.latitude, m.longitude),
-          width: 46,
-          height: 44,
+          width: 66,
+          height: 48,
           child: Tooltip(
             message:
-                '${m.name} (${m.plateNumber}) · ${isOccupied ? "Occupied" : "Available"} · ${km(m.distanceM)}',
+                '${m.name} (${m.plateNumber}) · ★ $ratingStr · ${isOccupied ? "Occupied" : "Available"} · ${km(m.distanceM)}',
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -805,20 +820,34 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 1),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.85),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(color: accent.withValues(alpha: 0.6), width: 0.8),
+                    color: Colors.black.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: accent.withValues(alpha: 0.75), width: 0.9),
                   ),
-                  child: Text(
-                    isOccupied ? 'BUSY' : 'FREE',
-                    style: TextStyle(
-                      color: accent,
-                      fontSize: 6.5,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 0.4,
-                    ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '★ $ratingStr',
+                        style: const TextStyle(
+                          color: Brand.amber,
+                          fontSize: 7,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        isOccupied ? 'BUSY' : 'FREE',
+                        style: TextStyle(
+                          color: accent,
+                          fontSize: 6.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.3,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
@@ -2221,22 +2250,70 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       ],
       if (ride.cashDeclaredAt != null) ...[
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: const Color(0xFF142418),
+            color: const Color(0xFF1F180B),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Brand.green),
+            border: Border.all(color: Brand.amber),
           ),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Icon(Icons.payments_outlined, size: 16, color: Brand.green),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  t('track.cash_recorded'),
-                  style: const TextStyle(
-                      color: Brand.green, fontSize: 11.5, fontWeight: FontWeight.w800),
-                ),
+              Row(
+                children: [
+                  const Icon(Icons.payments_outlined, size: 16, color: Brand.amber),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Cash Payment Declared — Waiting for Motari to Confirm',
+                      style: TextStyle(
+                          color: Brand.amber, fontSize: 11.5, fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: PrimaryButton(
+                      label: momoTotal != null
+                          ? 'Pay MoMo Instead (${rwf(momoTotal)})'
+                          : 'Pay with MoMo Instead',
+                      icon: Icons.smartphone,
+                      onPressed: _busy
+                          ? null
+                          : () => _act(() => widget.api.payRide(
+                                ride.token!,
+                                phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+                              )),
+                    ),
+                  ),
+                  if (ride.token != null) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: OutlinedButton.icon(
+                        onPressed:
+                            _busy ? null : () => _act(() => widget.api.ringDriver(ride.token!)),
+                        icon: const Icon(Icons.notifications_active,
+                            size: 14, color: Brand.orange),
+                        label: Text(
+                          t('track.ring_driver'),
+                          style: const TextStyle(
+                              fontSize: 10, fontWeight: FontWeight.w800, color: Brand.text),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          side: const BorderSide(color: Brand.orange),
+                          padding: const EdgeInsets.symmetric(vertical: 11),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(9)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
@@ -2299,6 +2376,148 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         ],
       ],
     ];
+  }
+
+  /// Large centered passenger rating modal shown after motari or passenger confirms.
+  Widget _ratingModalOverlay(PassengerRide ride) {
+    final driverName = ride.driver?.name ?? 'your motari';
+    final plate = ride.driver?.plateNumber;
+    final starLabel = switch (_selectedStars) {
+      1 => '1 ★ — Poor',
+      2 => '2 ★ — Fair',
+      3 => '3 ★ — Good',
+      4 => '4 ★ — Very Good',
+      5 => '5 ★ — Excellent!',
+      _ => 'Tap a star below',
+    };
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.88),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      alignment: Alignment.center,
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxWidth: 400),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B0B0B),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Brand.orange, width: 1.5),
+          boxShadow: const [BoxShadow(color: Colors.black, blurRadius: 40)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Brand.orange.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: Brand.orange, width: 2),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.two_wheeler, color: Brand.orange, size: 30),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'RIDE CONFIRMED · RATE YOUR MOTARI',
+              style: TextStyle(
+                color: Brand.orange,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'How was your ride with $driverName?',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                height: 1.2,
+              ),
+            ),
+            if (plate != null && plate.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  plate,
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.9,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Text(
+              'Please select 1 to 5 stars to rate your motari and complete your trip.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Brand.muted, fontSize: 12.5, height: 1.4),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (var n = 1; n <= 5; n++) ...[
+                  GestureDetector(
+                    onTap: _busy ? null : () => setState(() => _selectedStars = n),
+                    child: Container(
+                      width: 52,
+                      height: 52,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: n <= _selectedStars
+                            ? Brand.amber.withValues(alpha: 0.18)
+                            : const Color(0xFF141414),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: n <= _selectedStars ? Brand.amber : const Color(0xFF282828),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Icon(
+                        n <= _selectedStars ? Icons.star : Icons.star_border,
+                        color: Brand.amber,
+                        size: 30,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text(
+              starLabel,
+              style: const TextStyle(
+                color: Brand.amber,
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 18),
+            PrimaryButton(
+              label: _selectedStars >= 1
+                  ? 'Submit $_selectedStars-Star Rating'
+                  : 'Select 1–5 Stars to Continue',
+              onPressed: (_busy || _selectedStars < 1 || ride.token == null)
+                  ? null
+                  : () => _act(() => widget.api.rateRide(ride.token!, _selectedStars)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Mandatory rating section for completed rides and deliveries.

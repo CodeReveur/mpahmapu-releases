@@ -695,7 +695,6 @@ class _RidePanelState extends State<RidePanel> {
           ride.paymentMethod == 'CASH' ? t('ride.paid_cash') : t('ride.paid_platform'),
           style: const TextStyle(color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800),
         ),
-        ..._ratePassenger(ride),
       ];
     }
     if (ride.cashDeclaredAt != null) {
@@ -754,12 +753,10 @@ class _RidePanelState extends State<RidePanel> {
             ],
           ),
         ),
-        ..._ratePassenger(ride),
       ];
     }
     return [
       _note(t('ride.awaiting_payment'), Brand.amber),
-      ..._ratePassenger(ride),
     ];
   }
 
@@ -767,29 +764,6 @@ class _RidePanelState extends State<RidePanel> {
         text,
         style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w700),
       );
-
-  /// Mandatory rating of the passenger by the motari after every ride.
-  List<Widget> _ratePassenger(Ride ride) {
-    if (ride.passengerRating != null) return const [];
-    return [
-      const SizedBox(height: 10),
-      Text(t('ride.must_rate'),
-          style: const TextStyle(
-              color: Brand.orange, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.4)),
-      const SizedBox(height: 4),
-      Row(
-        children: [
-          for (var n = 1; n <= 5; n++)
-            IconButton(
-              padding: const EdgeInsets.only(right: 4),
-              constraints: const BoxConstraints(),
-              onPressed: widget.busy ? null : () => widget.onRate(ride.id, n),
-              icon: const Icon(Icons.star_border, size: 28, color: Brand.amber),
-            ),
-        ],
-      ),
-    ];
-  }
 
   Widget _handBack(Ride ride) => OutlinedButton(
         onPressed: widget.busy ? null : () => widget.onHandBack(ride.id),
