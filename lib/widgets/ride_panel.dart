@@ -697,64 +697,6 @@ class _RidePanelState extends State<RidePanel> {
         ),
       ];
     }
-    if (ride.cashDeclaredAt != null) {
-      return [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E170C),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Brand.amber),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                t('ride.cash_confirm_body'),
-                style: const TextStyle(
-                    color: Brand.text, fontSize: 12, fontWeight: FontWeight.w700, height: 1.35),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: widget.busy ? null : () => widget.onConfirmCash(ride.id),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Brand.green,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text(
-                        t('ride.confirm_cash_btn'),
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: widget.busy ? null : () => widget.onDenyCash(ride.id),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Brand.red,
-                        side: const BorderSide(color: Color(0xFF6B2121)),
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      ),
-                      child: Text(
-                        t('ride.decline_cash_btn'),
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ];
-    }
     return [
       _note(t('ride.awaiting_payment'), Brand.amber),
     ];

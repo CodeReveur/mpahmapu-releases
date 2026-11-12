@@ -624,7 +624,126 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
               ],
             ),
           ),
+
+          // Centered Modal when Passenger declares Cash Payment
+          if (ride != null && ride.cashDeclaredAt != null && ride.paymentStatus != 'PAID')
+            Positioned.fill(
+              child: _cashConfirmModalOverlay(ride),
+            ),
         ],
+      ),
+    );
+  }
+
+  Widget _cashConfirmModalOverlay(Ride ride) {
+    final fare = ride.fareRwf;
+    return Container(
+      color: Colors.black.withValues(alpha: 0.88),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      alignment: Alignment.center,
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxWidth: 400),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0E0E0E),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Brand.amber, width: 1.5),
+          boxShadow: const [BoxShadow(color: Colors.black, blurRadius: 40)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 62,
+              height: 62,
+              decoration: BoxDecoration(
+                color: Brand.amber.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: Brand.amber, width: 2),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.payments_outlined, color: Brand.amber, size: 30),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              t('ride.cash_confirm_title').toUpperCase(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Brand.amber,
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.2,
+              ),
+            ),
+            if (fare != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                rwf(fare),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 26,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Text(
+              t('ride.cash_confirm_body'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFFDDDDDD),
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _busy ? null : () => _act(() => widget.api.paid(ride.id, 'CASH')),
+                icon: const Icon(Icons.check_circle, size: 18, color: Colors.black),
+                label: Text(
+                  t('ride.confirm_cash_btn'),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Brand.green,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : () => _act(() => widget.api.denyCash(ride.id)),
+                icon: const Icon(Icons.cancel_outlined, size: 18, color: Brand.red),
+                label: Text(
+                  t('ride.decline_cash_btn'),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Brand.red,
+                  side: const BorderSide(color: Color(0xFF7F1D1D), width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

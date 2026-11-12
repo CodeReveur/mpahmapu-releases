@@ -718,7 +718,26 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
               child: _menuDropdown(),
             ),
 
-          // Large Passenger Rating Modal after successfully completed ride
+          // Modal 1: Parcel Delivery Confirmation Modal
+          if (_ride != null &&
+              _ride!.isCourier &&
+              _ride!.deliveredAt != null &&
+              _ride!.deliveryConfirmedAt == null &&
+              _ride!.deliveryDisputedAt == null)
+            Positioned.fill(
+              child: _parcelConfirmModalOverlay(_ride!),
+            ),
+
+          // Modal 2: Cash Declined / Payment Required Modal
+          if (_ride != null &&
+              _ride!.cashDeclinedAt != null &&
+              _ride!.cashDeclaredAt == null &&
+              _ride!.paymentStatus != 'PAID')
+            Positioned.fill(
+              child: _cashDeclinedModalOverlay(_ride!),
+            ),
+
+          // Modal 3: Large Passenger Rating Modal after successfully completed ride
           if (_ride != null &&
               _ride!.rating == null &&
               (_ride!.status == 'CLOSED' ||
@@ -2517,36 +2536,216 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     );
   }
 
-  /// Mandatory rating section for completed rides and deliveries.
-  List<Widget> _mandatoryRatingAndNext(PassengerRide ride) {
-    return [
-      if (ride.rating == null) ...[
-        const SizedBox(height: 10),
-        Text(
-          t('track.must_rate'),
-          style: const TextStyle(
-              color: Brand.orange, fontSize: 11.5, fontWeight: FontWeight.w800),
+  /// Centered modal when Motari marks a parcel as delivered.
+  Widget _parcelConfirmModalOverlay(PassengerRide ride) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.88),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      alignment: Alignment.center,
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxWidth: 400),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B0B0B),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Brand.green, width: 1.5),
+          boxShadow: const [BoxShadow(color: Colors.black, blurRadius: 40)],
         ),
-        const SizedBox(height: 4),
-        Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            for (var n = 1; n <= 5; n++)
-              IconButton(
-                padding: const EdgeInsets.only(right: 4),
-                constraints: const BoxConstraints(),
-                onPressed: _busy
-                    ? null
-                    : () => _act(() => widget.api.rateRide(ride.token!, n)),
-                icon: const Icon(Icons.star_border, size: 28, color: Brand.amber),
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Brand.green.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: Brand.green, width: 2),
               ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.inventory_2_outlined, color: Brand.green, size: 28),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'PARCEL DELIVERY CONFIRMATION',
+              style: TextStyle(
+                color: Brand.green,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.2,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              t('parcel.motari_says_delivered'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+                height: 1.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              t('parcel.stands_soon'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Brand.muted, fontSize: 12, height: 1.4),
+            ),
+            const SizedBox(height: 20),
+            PrimaryButton(
+              label: t('parcel.confirm'),
+              icon: Icons.check_circle_outline,
+              onPressed: _busy || ride.token == null
+                  ? null
+                  : () => _act(() => widget.api.confirmDelivery(ride.token!)),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _busy || ride.token == null
+                    ? null
+                    : () => _act(() => widget.api.disputeDelivery(ride.token!)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Brand.red,
+                  side: const BorderSide(color: Color(0xFF7F1D1D), width: 1.5),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text(
+                  t('parcel.not_delivered'),
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
-      ] else ...[
-        const SizedBox(height: 8),
-        Text(t('track.thanks'), style: Brand.micro),
-        const SizedBox(height: 10),
-        PrimaryButton(label: t('track.new_ride'), onPressed: _startOver),
-      ],
+      ),
+    );
+  }
+
+  /// Centered modal when Motari declines cash payment confirmation.
+  Widget _cashDeclinedModalOverlay(PassengerRide ride) {
+    final momoTotal = ride.fareWithMomoChargeRwf;
+    final momoLabel = momoTotal != null
+        ? '${t('track.make_payment_momo')} · ${rwf(momoTotal)} (+3.1%)'
+        : '${t('track.make_payment_momo')} (+3.1% MoMo)';
+
+    return Container(
+      color: Colors.black.withValues(alpha: 0.88),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      alignment: Alignment.center,
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxWidth: 400),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0E0E0E),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: Brand.red, width: 1.5),
+          boxShadow: const [BoxShadow(color: Colors.black, blurRadius: 40)],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                color: Brand.red.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+                border: Border.all(color: Brand.red, width: 2),
+              ),
+              alignment: Alignment.center,
+              child: const Icon(Icons.warning_amber_rounded, color: Brand.red, size: 30),
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'CASH NOT CONFIRMED · PAYMENT REQUIRED',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Brand.red,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.1,
+              ),
+            ),
+            if (momoTotal != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                rwf(momoTotal),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            Text(
+              t('track.cash_declined_alert'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFFDDDDDD),
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 20),
+            PrimaryButton(
+              label: momoLabel,
+              icon: Icons.smartphone,
+              onPressed: _busy || ride.token == null
+                  ? null
+                  : () => _act(() => widget.api.payRide(
+                        ride.token!,
+                        phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+                      )),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _busy || ride.token == null
+                    ? null
+                    : () => _act(() => widget.api.declareCash(ride.token!)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Brand.text,
+                  side: const BorderSide(color: Brand.line),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: Text(
+                  t('track.i_paid_cash'),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Mandatory rating section for completed rides and deliveries (modal handles unrated state).
+  List<Widget> _mandatoryRatingAndNext(PassengerRide ride) {
+    if (ride.rating == null) return const [];
+    return [
+      const SizedBox(height: 8),
+      Text(t('track.thanks'), style: Brand.micro),
+      const SizedBox(height: 10),
+      PrimaryButton(label: t('track.new_ride'), onPressed: _startOver),
     ];
   }
 
