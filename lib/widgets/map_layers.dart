@@ -1,41 +1,91 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
 
+import '../api.dart';
 import '../i18n.dart';
 import '../theme.dart';
 
 /// What the map is drawn on.
-///
-/// Streets are easier to follow along a road; satellite is easier to recognise
-/// standing in one. A passenger describing where they are wants the second — a
-/// roof, a yard, the shape of a junction — which is why it is offered on both
-/// sides rather than treated as a driver's tool.
 enum Basemap { streets, satellite }
 
-/// The tiles for a basemap, with the attribution each one requires.
-TileLayer basemapTiles(Basemap map) {
-  switch (map) {
-    case Basemap.satellite:
-      return TileLayer(
-        urlTemplate:
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        userAgentPackageName: 'rw.mpahmapu.motari',
-        // Esri's imagery stops short of the deepest street zooms; without this
-        // the map goes blank instead of showing a stretched last tile.
-        maxNativeZoom: 19,
-      );
-    case Basemap.streets:
-      return TileLayer(
-        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-        userAgentPackageName: 'rw.mpahmapu.motari',
-      );
+/// Which map provider the Admin has chosen globally for all users.
+enum MapProvider { google, osm }
+
+/// Global reactive map provider controlled by Admin settings ('google' or 'osm').
+final ValueNotifier<MapProvider> activeMapProvider =
+    ValueNotifier<MapProvider>(MapProvider.google);
+
+void setMapProviderFromConfig(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return;
+  final v = raw.trim().toLowerCase();
+  final next = (v == 'osm' || v == 'openstreetmap') ? MapProvider.osm : MapProvider.google;
+  if (activeMapProvider.value != next) {
+    activeMapProvider.value = next;
   }
 }
 
-/// Whose imagery this is. Both sources ask to be named, and naming them is the
-/// condition of using them for free.
-String basemapCredit(Basemap map) =>
-    map == Basemap.satellite ? 'Esri, Maxar, Earthstar Geographics' : 'OpenStreetMap';
+Future<void> syncMapProviderFromBackend() async {
+  try {
+    final res = await http
+        .get(Uri.parse('${Api.baseUrl}/api/config/maps'))
+        .timeout(const Duration(seconds: 6));
+    if (res.statusCode == 200) {
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      final data = body['data'] is Map<String, dynamic>
+          ? body['data'] as Map<String, dynamic>
+          : body;
+      setMapProviderFromConfig(data['provider']?.toString());
+    }
+  } catch (_) {}
+}
+
+/// The tiles for a basemap, honoring the Admin's global choice between Google Maps and OpenStreetMap.
+Widget basemapTiles(Basemap map) {
+  return ValueListenableBuilder<MapProvider>(
+    valueListenable: activeMapProvider,
+    builder: (context, provider, _) {
+      if (provider == MapProvider.google) {
+        final lyrs = map == Basemap.satellite ? 'y' : 'm';
+        return TileLayer(
+          key: ValueKey('google_$lyrs'),
+          urlTemplate: 'https://mt1.google.com/vt/lyrs=$lyrs&x={x}&y={y}&z={z}',
+          userAgentPackageName: 'rw.mpahmapu.motari',
+          maxNativeZoom: 21,
+        );
+      }
+
+      switch (map) {
+        case Basemap.satellite:
+          return TileLayer(
+            key: const ValueKey('osm_satellite'),
+            urlTemplate:
+                'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            userAgentPackageName: 'rw.mpahmapu.motari',
+            maxNativeZoom: 19,
+          );
+        case Basemap.streets:
+          return TileLayer(
+            key: const ValueKey('osm_streets'),
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'rw.mpahmapu.motari',
+            maxNativeZoom: 19,
+          );
+      }
+    },
+  );
+}
+
+/// Whose imagery this is.
+String basemapCredit(Basemap map, [MapProvider? provider]) {
+  final p = provider ?? activeMapProvider.value;
+  if (p == MapProvider.google) {
+    return map == Basemap.satellite ? 'Google Maps Satellite' : 'Google Maps';
+  }
+  return map == Basemap.satellite ? 'Esri, Maxar, Earthstar Geographics' : 'OpenStreetMap';
+}
 
 /// The button that swaps between them.
 class BasemapButton extends StatelessWidget {
@@ -84,15 +134,18 @@ class MapCredit extends StatelessWidget {
   const MapCredit({super.key, required this.map});
 
   @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        decoration: BoxDecoration(
-          color: Brand.black.withValues(alpha: 0.55),
-          borderRadius: BorderRadius.circular(5),
-        ),
-        child: Text(
-          basemapCredit(map),
-          style: const TextStyle(color: Brand.dim, fontSize: 8.5),
+  Widget build(BuildContext context) => ValueListenableBuilder<MapProvider>(
+        valueListenable: activeMapProvider,
+        builder: (context, provider, _) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          decoration: BoxDecoration(
+            color: Brand.black.withValues(alpha: 0.55),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Text(
+            basemapCredit(map, provider),
+            style: const TextStyle(color: Brand.dim, fontSize: 8.5),
+          ),
         ),
       );
 }

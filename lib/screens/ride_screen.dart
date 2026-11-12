@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -14,8 +15,10 @@ import '../models.dart';
 import '../routing.dart' show metresBetween;
 import '../permissions.dart';
 import '../theme.dart';
+import '../updater.dart';
 import '../widgets/language_button.dart';
 import '../widgets/map_layers.dart';
+import 'register_screen.dart';
 
 /// Asking for a motari, and watching one arrive.
 ///
@@ -25,7 +28,13 @@ import '../widgets/map_layers.dart';
 class RideScreen extends StatefulWidget {
   final Api api;
   final VoidCallback onDrive;
-  const RideScreen({super.key, required this.api, required this.onDrive});
+  final VoidCallback? onSignedOut;
+  const RideScreen({
+    super.key,
+    required this.api,
+    required this.onDrive,
+    this.onSignedOut,
+  });
 
   @override
   State<RideScreen> createState() => _RideScreenState();
@@ -95,6 +104,11 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   PassengerRide? _ride;
   Timer? _poll;
   Timer? _beat;
+  Timer? _supplyPoll;
+  final _alertPlayer = AudioPlayer();
+  DateTime? _lastDriverBellAt;
+  DateTime? _lastCashDeclinedAt;
+  String? _lastNotifiedStatus;
 
   bool _busy = false;
   String? _error;
@@ -104,8 +118,13 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    syncMapProviderFromBackend();
     _restore();
     _watchPosition();
+    _refreshSupplyOnly();
+    _supplyPoll = Timer.periodic(const Duration(seconds: 6), (_) {
+      if (_ride == null) _refreshSupplyOnly();
+    });
   }
 
   @override
@@ -114,7 +133,9 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     _positions?.cancel();
     _poll?.cancel();
     _beat?.cancel();
+    _supplyPoll?.cancel();
     _searchDebounce?.cancel();
+    _alertPlayer.dispose();
     _phone.dispose();
     _pickupText.dispose();
     _destText.dispose();
@@ -137,8 +158,10 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     if (token != null) {
       try {
         final ride = await widget.api.trackRide(token);
-        // A ride that is over should not greet them on the next launch.
-        if (!ride.done) {
+        // Keep active rides and unrated completed/closed rides on screen until rated.
+        final needsRating =
+            (ride.status == 'COMPLETED' || ride.status == 'CLOSED') && ride.rating == null;
+        if (!ride.done || needsRating) {
           _hold(ride);
         } else {
           await prefs.remove(_tokenKey);
@@ -162,25 +185,13 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     if (!access.ok) return;
     _positions = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
       ),
     ).listen((p) {
       if (!mounted) return;
-
-      /*
-       * Every reading is kept, however coarse.
-       *
-       * Anything worse than five kilometres used to be dropped as "a network
-       * guess, not GPS", which is true, and throwing it away meant the map
-       * never centred and the passenger never saw themselves on it. A coarse
-       * fix drawn inside its accuracy ring is honest. A coarse fix discarded
-       * looks like a broken app.
-       */
-      // Keep the better of what we have and what just arrived, so a stray
-      // coarse reading cannot throw away a good one. Something no worse than
-      // half as good still wins, because the passenger does move.
-      if (_device == null || p.accuracy <= _bestAccuracy * 2) {
+      // Zero-error exact coordinate tracking: reject coarse GPS drift.
+      if (_device == null || p.accuracy <= 30.0 || p.accuracy <= _bestAccuracy * 1.5) {
         if (p.accuracy < _bestAccuracy) _bestAccuracy = p.accuracy;
         setState(() => _device = p);
       }
@@ -242,9 +253,23 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
 
   /* ── the fare, and how much moto is around ────────────────────────────── */
 
+  Future<void> _refreshSupplyOnly() async {
+    final at = _pickup ??
+        (_device != null ? LatLng(_device!.latitude, _device!.longitude) : _kigali);
+    try {
+      final supply = await widget.api.supply(at.latitude, at.longitude, kind: _kind);
+      if (!mounted) return;
+      setMapProviderFromConfig(supply.mapProvider);
+      setState(() => _supply = supply);
+    } catch (_) {}
+  }
+
   Future<void> _refreshQuote() async {
     final at = _pickup;
-    if (at == null) return;
+    if (at == null) {
+      await _refreshSupplyOnly();
+      return;
+    }
     try {
       final quote = await widget.api.quote(
         pickupLat: at.latitude,
@@ -255,6 +280,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       );
       final supply = await widget.api.supply(at.latitude, at.longitude, kind: _kind);
       if (!mounted) return;
+      setMapProviderFromConfig(supply.mapProvider);
       setState(() {
         _quote = quote;
         _supply = supply;
@@ -389,10 +415,11 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   void _hold(PassengerRide ride) {
     if (!mounted) return;
     setState(() => _ride = ride);
+    _lastNotifiedStatus = ride.status;
     _poll?.cancel();
     _beat?.cancel();
-    _poll = Timer.periodic(const Duration(seconds: 5), (_) => _refresh());
-    _beat = Timer.periodic(const Duration(seconds: 8), (_) => _sendPosition());
+    _poll = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
+    _beat = Timer.periodic(const Duration(seconds: 3), (_) => _sendPosition());
     if (ride.driver?.latitude != null) _frameRide(ride);
   }
 
@@ -409,16 +436,101 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     try {
       final next = await widget.api.trackRide(token);
       if (!mounted) return;
+      await _checkPassengerAlerts(next);
       setState(() => _ride = next);
-      if (next.done) {
+      final needsRating =
+          (next.status == 'COMPLETED' || next.status == 'CLOSED') && next.rating == null;
+      if (next.done && !needsRating) {
         _release();
-        // A finished ride still shows until they dismiss it, but nothing on
-        // this device should hold onto it after that.
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_tokenKey);
       }
     } catch (_) {
       // A dropped poll is normal on a phone in a pocket; the next one carries.
+    }
+  }
+
+  Future<void> _checkPassengerAlerts(PassengerRide next) async {
+    // 1. Status transition notifications (Accepted, 400m Ride Started, Completed)
+    if (_lastNotifiedStatus != null && _lastNotifiedStatus != next.status) {
+      _lastNotifiedStatus = next.status;
+      if (next.status == 'ASSIGNED') {
+        await Permissions.showAlertNotification(
+          id: 81,
+          title: 'Motari Accepted Your Request',
+          body: '${next.driver?.name ?? "Motari"} (${next.driver?.plateNumber ?? ""}) is on the way. You can now make payment or ring the bell.',
+        );
+      } else if (next.status == 'IN_RIDE') {
+        await Permissions.showAlertNotification(
+          id: 82,
+          title: 'Ride In Progress',
+          body: 'Your ride is now in progress!',
+        );
+      } else if (next.status == 'COMPLETED') {
+        await Permissions.showAlertNotification(
+          id: 83,
+          title: 'Ride Finished',
+          body: 'Please complete payment and rate your ride (1–5 stars).',
+        );
+      }
+    }
+
+    // 2. Motari rang the bell
+    if (next.lastRingAt != null && next.lastRingBy == 'DRIVER') {
+      if (_lastDriverBellAt == null || next.lastRingAt!.isAfter(_lastDriverBellAt!)) {
+        _lastDriverBellAt = next.lastRingAt;
+        await Permissions.showAlertNotification(
+          id: 84,
+          title: '🔔 Your Motari is ringing you!',
+          body: '${next.driver?.name ?? "Your motari"} (${next.driver?.plateNumber ?? ""}) rang your bell.',
+        );
+        try {
+          await _alertPlayer.stop();
+          await _alertPlayer.setReleaseMode(ReleaseMode.stop);
+          await _alertPlayer.play(AssetSource('audio/incoming-ride.wav'));
+        } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Brand.orange,
+              content: Text(
+                '🔔 ${next.driver?.name ?? "Motari"} is ringing you!',
+                style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
+              ),
+            ),
+          );
+        }
+      }
+    }
+
+    // 3. Motari declined cash payment confirmation
+    if (next.cashDeclinedAt != null && next.paymentStatus != 'PAID') {
+      if (_lastCashDeclinedAt == null || next.cashDeclinedAt!.isAfter(_lastCashDeclinedAt!)) {
+        _lastCashDeclinedAt = next.cashDeclinedAt;
+        final momoTotal = next.fareWithMomoChargeRwf;
+        await Permissions.showAlertNotification(
+          id: 85,
+          title: 'Please Complete Payment',
+          body: t('track.cash_declined_alert'),
+        );
+        try {
+          await _alertPlayer.stop();
+          await _alertPlayer.setReleaseMode(ReleaseMode.stop);
+          await _alertPlayer.play(AssetSource('audio/incoming-ride.wav'));
+        } catch (_) {}
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              backgroundColor: Brand.red,
+              duration: const Duration(seconds: 6),
+              content: Text(
+                'Please complete payment${momoTotal != null ? " (${rwf(momoTotal)})" : ""}: Motari declined cash confirmation.',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+              ),
+            ),
+          );
+        }
+      }
     }
   }
 
@@ -525,9 +637,12 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           ),
 
           // Top Bar: Hamburger Menu (left), Brand Chip (center), Language (right)
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 14,
+            right: 14,
+            child: SizedBox(
+              height: 34,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -536,46 +651,71 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                     child: _hamburgerMenuButton(),
                   ),
                   _brandChip(),
-                  Align(
+                  const Align(
                     alignment: Alignment.centerRight,
-                    child: const LanguageButton(),
+                    child: LanguageButton(),
                   ),
                 ],
               ),
             ),
           ),
 
-          // Menu Dropdown if open
-          if (_menuOpen)
-            Positioned(
-              top: MediaQuery.of(context).padding.top + 48,
-              left: 14,
-              child: _menuDropdown(),
-            ),
-
-          // Floating controls right above the sheet: Supply (left), Basemap & MapCredit (right)
-          Positioned(
-            left: 14,
-            right: 14,
-            bottom: (_minimised ? 56 : MediaQuery.of(context).size.height * 0.58) + 12,
-            child: Row(
+          // Bottom controls + Sheet anchored together so controls sit right above sheet
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                if (_supply != null && _ride == null) _supplyChip(),
-                const Spacer(),
-                MapCredit(map: _basemap),
-                const SizedBox(width: 8),
-                BasemapButton(
-                  value: _basemap,
-                  onChanged: (m) => setState(() => _basemap = m),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const UpdateBanner(),
+                      Row(
+                        children: [
+                          if (_supply != null && _ride == null)
+                            Expanded(
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: _supplyChip(),
+                              ),
+                            )
+                          else
+                            const Spacer(),
+                          const SizedBox(width: 6),
+                          MapCredit(map: _basemap),
+                          const SizedBox(width: 6),
+                          BasemapButton(
+                            value: _basemap,
+                            onChanged: (m) => setState(() => _basemap = m),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
+                _sheet(),
               ],
             ),
           ),
 
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: _sheet(),
-          ),
+          // Tap-outside barrier to dismiss menu dropdown
+          if (_menuOpen)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onTap: () => setState(() => _menuOpen = false),
+              ),
+            ),
+
+          // Menu Dropdown if open
+          if (_menuOpen)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 52,
+              left: 14,
+              child: _menuDropdown(),
+            ),
         ],
       ),
     );
@@ -639,6 +779,54 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           child: const Icon(Icons.two_wheeler, color: Brand.orange, size: 17),
         ),
       ));
+    } else if (ride == null && _supply != null && _supply!.motaris.isNotEmpty) {
+      for (final m in _supply!.motaris) {
+        final isOccupied = m.occupied;
+        final accent = isOccupied ? Brand.amber : Brand.green;
+        markers.add(Marker(
+          point: LatLng(m.latitude, m.longitude),
+          width: 46,
+          height: 44,
+          child: Tooltip(
+            message:
+                '${m.name} (${m.plateNumber}) · ${isOccupied ? "Occupied" : "Available"} · ${km(m.distanceM)}',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF101010),
+                    shape: BoxShape.circle,
+                    border: Border.all(color: accent, width: 2),
+                    boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 5)],
+                  ),
+                  child: Icon(Icons.two_wheeler, color: accent, size: 15),
+                ),
+                const SizedBox(height: 1),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: accent.withValues(alpha: 0.6), width: 0.8),
+                  ),
+                  child: Text(
+                    isOccupied ? 'BUSY' : 'FREE',
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: 6.5,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ));
+      }
     }
     return markers;
   }
@@ -660,29 +848,65 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   Widget _supplyChip() {
     final supply = _supply!;
     final near = supply.nearestM;
+    final avail = supply.available;
+    final occ = supply.occupied;
+    final rate = supply.occupationRate;
+    final rateColor = rate >= 80
+        ? Brand.red
+        : rate >= 50
+            ? Brand.amber
+            : Brand.green;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: Brand.black.withValues(alpha: 0.94),
-        border: Border.all(color: supply.active > 0 ? const Color(0xFF14532D) : Brand.line),
+        border: Border.all(color: avail > 0 ? const Color(0xFF14532D) : Brand.line),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.two_wheeler, size: 12, color: supply.active > 0 ? Brand.green : Brand.dim),
+          Container(
+            width: 7,
+            height: 7,
+            decoration: BoxDecoration(
+              color: avail > 0 ? Brand.green : Brand.dim,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              avail == 0 && occ == 0
+                  ? t('ask.none_around')
+                  : '$avail Free${occ > 0 ? " · $occ Busy" : ""}${near != null ? " · ${km(near)}" : ""}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: avail > 0 ? Brand.text : Brand.muted,
+                fontSize: 9.5,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
           const SizedBox(width: 6),
-          Text(
-            supply.active == 0
-                ? t('ask.none_around')
-                : near == null
-                    ? t('ask.around', {'count': supply.active})
-                    : t('ask.nearest', {'count': supply.active, 'distance': km(near)}),
-            style: TextStyle(
-              color: supply.active > 0 ? Brand.text : Brand.muted,
-              fontSize: 9.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.4,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: rateColor.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(color: rateColor.withValues(alpha: 0.5), width: 0.8),
+            ),
+            child: Text(
+              '$rate% OCC',
+              style: TextStyle(
+                color: rateColor,
+                fontSize: 8.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.4,
+              ),
             ),
           ),
         ],
@@ -691,25 +915,26 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   }
 
   Widget _brandChip() => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
-          color: const Color(0xFF121212).withValues(alpha: 0.96),
+          color: const Color(0xFF121212).withValues(alpha: 0.94),
           border: Border.all(color: const Color(0xFF2E2E2E)),
           borderRadius: BorderRadius.circular(999),
           boxShadow: const [
-            BoxShadow(color: Colors.black54, blurRadius: 16, offset: Offset(0, 4)),
+            BoxShadow(color: Colors.black54, blurRadius: 14, offset: Offset(0, 4)),
           ],
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.two_wheeler, size: 12, color: Brand.orange),
+            const Icon(Icons.two_wheeler, size: 13, color: Brand.orange),
             const SizedBox(width: 6),
             Text(
               t('app.name').toUpperCase(),
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 9.5,
+                fontSize: 10,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 1.0,
               ),
@@ -721,25 +946,32 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   Widget _hamburgerMenuButton() => GestureDetector(
         onTap: () => setState(() => _menuOpen = !_menuOpen),
         child: Container(
-          width: 32,
-          height: 32,
+          width: 34,
+          height: 34,
           decoration: BoxDecoration(
-            color: const Color(0xFF121212).withValues(alpha: 0.96),
-            border: Border.all(color: const Color(0xFF2E2E2E)),
-            borderRadius: BorderRadius.circular(9),
+            color: const Color(0xFF121212).withValues(alpha: 0.94),
+            border: Border.all(color: _menuOpen ? Brand.orange : const Color(0xFF2E2E2E)),
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: const [
+              BoxShadow(color: Colors.black54, blurRadius: 12, offset: Offset(0, 3)),
+            ],
           ),
           child: Icon(
             _menuOpen ? Icons.close : Icons.menu,
-            size: 14,
-            color: const Color(0xFFEEEEEE),
+            size: 16,
+            color: _menuOpen ? Brand.orange : const Color(0xFFEEEEEE),
           ),
         ),
       );
 
-  Widget _menuDropdown() => Container(
-        width: 175,
+  Widget _menuDropdown() {
+    final signedIn = widget.api.signedIn;
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        width: 205,
         decoration: BoxDecoration(
-          color: const Color(0xFF121212).withValues(alpha: 0.96),
+          color: const Color(0xFF121212).withValues(alpha: 0.98),
           border: Border.all(color: const Color(0xFF2E2E2E)),
           borderRadius: BorderRadius.circular(12),
           boxShadow: const [
@@ -750,21 +982,115 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           borderRadius: BorderRadius.circular(12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (signedIn) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF1A140E),
+                    border: Border(bottom: BorderSide(color: Color(0xFF262626))),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.api.userName?.isNotEmpty == true
+                              ? widget.api.userName!
+                              : t('settings.unnamed'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Brand.orange.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'MOTARI',
+                          style: TextStyle(
+                            color: Brand.orange,
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                _menuItem(
+                  icon: Icons.dashboard_outlined,
+                  label: t('common.nav.dashboard'),
+                  onTap: () {
+                    setState(() => _menuOpen = false);
+                    widget.onDrive();
+                  },
+                ),
+                _menuItem(
+                  icon: Icons.logout,
+                  label: t('common.nav.signout'),
+                  onTap: () async {
+                    setState(() => _menuOpen = false);
+                    await widget.api.signOut();
+                    widget.onSignedOut?.call();
+                    if (mounted) setState(() {});
+                  },
+                ),
+              ] else ...[
+                _menuItem(
+                  icon: Icons.two_wheeler,
+                  label: t('common.nav.register'),
+                  onTap: () {
+                    setState(() => _menuOpen = false);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (ctx) => RegisterScreen(
+                          api: widget.api,
+                          onRegistered: () {
+                            Navigator.of(ctx).pop();
+                            widget.onDrive();
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                _menuItem(
+                  icon: Icons.login,
+                  label: t('common.nav.signin'),
+                  onTap: () {
+                    setState(() => _menuOpen = false);
+                    widget.onDrive();
+                  },
+                ),
+              ],
               _menuItem(
-                icon: Icons.two_wheeler,
-                label: t('ask.i_drive'),
-                onTap: () {
+                icon: Icons.system_update_alt,
+                label: t('update.check'),
+                onTap: () async {
                   setState(() => _menuOpen = false);
-                  widget.onDrive();
-                },
-              ),
-              _menuItem(
-                icon: Icons.login,
-                label: t('common.nav.signin'),
-                onTap: () {
-                  setState(() => _menuOpen = false);
-                  widget.onDrive();
+                  final found = await AppUpdater.checkAndAutoUpdate(silent: false);
+                  if (!found && mounted) {
+                    final ver = AppUpdater.status.value.currentVersion;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        backgroundColor: Brand.surface,
+                        content: Text(
+                          t('update.up_to_date', {'version': ver}),
+                          style: const TextStyle(color: Brand.text, fontSize: 12),
+                        ),
+                      ),
+                    );
+                  }
                 },
               ),
               _menuItem(
@@ -779,7 +1105,9 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
             ],
           ),
         ),
-      );
+      ),
+    );
+  }
 
   Widget _menuItem({
     required IconData icon,
@@ -791,7 +1119,7 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         onTap: onTap,
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
           decoration: BoxDecoration(
             border: isLast
                 ? null
@@ -799,14 +1127,14 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           ),
           child: Row(
             children: [
-              Icon(icon, size: 13, color: Brand.orange),
-              const SizedBox(width: 9),
+              Icon(icon, size: 14, color: Brand.orange),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   label,
                   style: const TextStyle(
-                    color: Color(0xFFCCCCCC),
-                    fontSize: 11,
+                    color: Color(0xFFEEEEEE),
+                    fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -829,19 +1157,23 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
           children: [
             const Icon(Icons.help_outline, color: Brand.orange, size: 20),
             const SizedBox(width: 8),
-            Text(t('common.nav.help'),
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800)),
+            Expanded(
+              child: Text(
+                t('help.title'),
+                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w800),
+              ),
+            ),
           ],
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Need assistance with a ride or delivery? Contact Ask Motari support:',
-              style: TextStyle(color: Color(0xFFCCCCCC), fontSize: 12.5, height: 1.5),
+            Text(
+              t('help.body'),
+              style: const TextStyle(color: Color(0xFFCCCCCC), fontSize: 12.5, height: 1.55),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 14),
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -1745,6 +2077,23 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                   ],
                 ),
               ),
+              if ( ride.token != null && !ride.done && ride.status != 'COMPLETED' ) ...[
+                GestureDetector(
+                  onTap: _busy ? null : () => _act(() => widget.api.ringDriver(ride.token!)),
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF261C10),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Brand.orange, width: 1.5),
+                    ),
+                    child: const Icon(Icons.notifications_active,
+                        size: 17, color: Brand.orange),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               if (driver.phone != null)
                 GestureDetector(
                   onTap: () => _call(driver.phone!),
@@ -1773,10 +2122,49 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
                 style: const TextStyle(color: Brand.muted, fontSize: 11.5)),
             if (ride.fareRwf != null) ...[
               const SizedBox(height: 6),
-              Text(
-                rwf(ride.fareRwf),
-                style: const TextStyle(
-                    color: Brand.text, fontSize: 14, fontWeight: FontWeight.w900),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    rwf(ride.fareRwf),
+                    style: const TextStyle(
+                        color: Brand.text, fontSize: 14, fontWeight: FontWeight.w900),
+                  ),
+                  if (ride.fareWithMomoChargeRwf != null)
+                    Text(
+                      'MoMo (+3.1%): ${rwf(ride.fareWithMomoChargeRwf)}',
+                      style: const TextStyle(
+                          color: Brand.orange, fontSize: 11, fontWeight: FontWeight.w800),
+                    ),
+                ],
+              ),
+            ],
+            if (ride.live) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: ride.status == 'IN_RIDE' ? Brand.green : Brand.amber,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      ride.status == 'IN_RIDE'
+                          ? t('track.riding')
+                          : t('ride.waiting_to_start'),
+                      style: TextStyle(
+                        color: ride.status == 'IN_RIDE' ? Brand.green : Brand.amber,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ],
@@ -1793,14 +2181,166 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
     return _rideActions(ride);
   }
 
-  /// The parcel owner's side. Once a motari has the parcel it stops being
-  /// theirs to call off, and once it is said to be delivered they have two
-  /// things to do and one right to keep: pay, agree, or say it never came.
+  /// Payment controls shown right after Motari accepts (and on completion if unpaid):
+  /// Primary "Make Payment (MoMo +3.1%)" button + small secondary "I paid cash" button.
+  List<Widget> _passengerPaymentSection(PassengerRide ride) {
+    if (ride.paymentStatus == 'PAID') return const [];
+
+    final momoTotal = ride.fareWithMomoChargeRwf;
+    final momoLabel = momoTotal != null
+        ? '${t('track.make_payment_momo')} · ${rwf(momoTotal)} (+3.1%)'
+        : '${t('track.make_payment_momo')} (+3.1% MoMo)';
+
+    return [
+      if (ride.cashDeclinedAt != null && ride.cashDeclaredAt == null) ...[
+        Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF2B1111),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Brand.red),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, size: 18, color: Brand.red),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  t('track.cash_declined_alert'),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+      if (ride.cashDeclaredAt != null) ...[
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: const Color(0xFF142418),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Brand.green),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.payments_outlined, size: 16, color: Brand.green),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  t('track.cash_recorded'),
+                  style: const TextStyle(
+                      color: Brand.green, fontSize: 11.5, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ] else ...[
+        PrimaryButton(
+          label: momoLabel,
+          icon: Icons.smartphone,
+          onPressed: _busy
+              ? null
+              : () => _act(() => widget.api.payRide(
+                    ride.token!,
+                    phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+                  )),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            if (ride.live && ride.token != null) ...[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _busy ? null : () => _act(() => widget.api.ringDriver(ride.token!)),
+                  icon: const Icon(Icons.notifications_active, size: 14, color: Brand.orange),
+                  label: Text(
+                    t('track.ring_driver'),
+                    style: const TextStyle(
+                        fontSize: 10.5, fontWeight: FontWeight.w800, color: Brand.text),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Brand.orange),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: OutlinedButton(
+                onPressed: _busy ? null : () => _act(() => widget.api.declareCash(ride.token!)),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Brand.text,
+                  side: const BorderSide(color: Brand.line),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                ),
+                child: Text(
+                  t('track.i_paid_cash'),
+                  style: const TextStyle(
+                      fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.4),
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (ride.paymentStatus == 'PENDING' && ride.paymentMethod == 'PLATFORM') ...[
+          const SizedBox(height: 6),
+          Text(t('track.approve_on_phone'),
+              style: const TextStyle(color: Brand.amber, fontSize: 11, fontWeight: FontWeight.w700)),
+        ],
+      ],
+    ];
+  }
+
+  /// Mandatory rating section for completed rides and deliveries.
+  List<Widget> _mandatoryRatingAndNext(PassengerRide ride) {
+    return [
+      if (ride.rating == null) ...[
+        const SizedBox(height: 10),
+        Text(
+          t('track.must_rate'),
+          style: const TextStyle(
+              color: Brand.orange, fontSize: 11.5, fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 4),
+        Row(
+          children: [
+            for (var n = 1; n <= 5; n++)
+              IconButton(
+                padding: const EdgeInsets.only(right: 4),
+                constraints: const BoxConstraints(),
+                onPressed: _busy
+                    ? null
+                    : () => _act(() => widget.api.rateRide(ride.token!, n)),
+                icon: const Icon(Icons.star_border, size: 28, color: Brand.amber),
+              ),
+          ],
+        ),
+      ] else ...[
+        const SizedBox(height: 8),
+        Text(t('track.thanks'), style: Brand.micro),
+        const SizedBox(height: 10),
+        PrimaryButton(label: t('track.new_ride'), onPressed: _startOver),
+      ],
+    ];
+  }
+
+  /// The parcel owner's side.
   List<Widget> _parcelActions(PassengerRide ride) {
     final delivered = ride.deliveredAt != null;
-    final settled = ride.deliveryConfirmedAt != null;
+    final settled = ride.deliveryConfirmedAt != null || ride.status == 'CLOSED';
     final disputed = ride.deliveryDisputedAt != null;
-    final paid = ride.paymentStatus == 'PAID' || ride.cashDeclaredAt != null;
+    final paid = ride.paymentStatus == 'PAID';
 
     if (disputed) {
       return [
@@ -1811,31 +2351,12 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       ];
     }
 
-    if (settled) {
+    if (settled && paid) {
       return [
         Text(t('parcel.delivered_ok'),
             style: const TextStyle(
                 color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800)),
-        if (ride.rating == null) ...[
-          const SizedBox(height: 10),
-          Text(t('track.rate'), style: Brand.micro),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              for (var n = 1; n <= 5; n++)
-                IconButton(
-                  padding: const EdgeInsets.only(right: 2),
-                  constraints: const BoxConstraints(),
-                  onPressed: _busy
-                      ? null
-                      : () => _act(() => widget.api.rateRide(ride.token!, n)),
-                  icon: const Icon(Icons.star_border, size: 26, color: Brand.amber),
-                ),
-            ],
-          ),
-        ],
-        const SizedBox(height: 10),
-        PrimaryButton(label: t('track.new_ride'), onPressed: _startOver),
+        ..._mandatoryRatingAndNext(ride),
       ];
     }
 
@@ -1847,50 +2368,17 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
         const SizedBox(height: 4),
         Text(t('parcel.stands_soon'), style: Brand.micro),
         const SizedBox(height: 10),
-        // Pay and confirm are two different things, so they are two buttons.
-        Row(
-          children: [
-            if (!paid)
-              Expanded(
-                child: PrimaryButton(
-                  label: t('parcel.pay_now'),
-                  icon: Icons.smartphone,
-                  onPressed: _busy
-                      ? null
-                      : () => _act(() => widget.api.payRide(
-                            ride.token!,
-                            phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
-                          )),
-                ),
-              ),
-            if (!paid) const SizedBox(width: 8),
-            Expanded(
-              child: PrimaryButton(
-                label: t('parcel.confirm'),
-                icon: Icons.check,
-                onPressed:
-                    _busy ? null : () => _act(() => widget.api.confirmDelivery(ride.token!)),
-              ),
-            ),
-          ],
-        ),
-        if (!paid) ...[
-          const SizedBox(height: 8),
-          OutlinedButton(
-            onPressed: _busy ? null : () => _act(() => widget.api.declareCash(ride.token!)),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Brand.text,
-              side: const BorderSide(color: Brand.line),
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: Text(t('track.paid_cash_button'),
-                style: const TextStyle(
-                    fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.5)),
+        ..._passengerPaymentSection(ride),
+        const SizedBox(height: 8),
+        if (!settled)
+          PrimaryButton(
+            label: t('parcel.confirm'),
+            icon: Icons.check,
+            onPressed:
+                _busy ? null : () => _act(() => widget.api.confirmDelivery(ride.token!)),
           ),
-        ],
+        ..._mandatoryRatingAndNext(ride),
         const SizedBox(height: 10),
-        // The right they keep, whatever the clock does.
         GestureDetector(
           onTap: _busy ? null : () => _act(() => widget.api.disputeDelivery(ride.token!)),
           behavior: HitTestBehavior.opaque,
@@ -1909,13 +2397,32 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       ];
     }
 
-    // On its way. Once the motari has it in hand there is nothing to cancel.
-    if (ride.pickedUpAt != null) {
+    // Parcel accepted / in transit: show payment options + ring bell
+    if (ride.live) {
       return [
-        Text(t('parcel.on_its_way'), style: Brand.micro),
-        const SizedBox(height: 8),
-        Text(t('parcel.cannot_cancel'),
-            style: const TextStyle(color: Brand.muted, fontSize: 11.5, height: 1.4)),
+        ..._passengerPaymentSection(ride),
+        if (ride.pickedUpAt == null && ride.movementProgressM < 400.0) ...[
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: _busy
+                ? null
+                : () async {
+                    await _act(() => widget.api.cancelRide(ride.token!));
+                    if (mounted && (_ride?.done ?? false)) _release();
+                  },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Brand.red,
+              side: const BorderSide(color: Color(0xFF451A1A)),
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text(
+              t('track.cancel'),
+              style: const TextStyle(
+                  fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8),
+            ),
+          ),
+        ],
       ];
     }
 
@@ -1923,37 +2430,26 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   }
 
   List<Widget> _rideActions(PassengerRide ride) {
-    // Paid, and nothing left to do but say how it went.
-    if (ride.paymentStatus == 'PAID' || ride.status == 'CLOSED') {
+    // Paid or closed: mandatory rating before starting a new ride.
+    if (ride.paymentStatus == 'PAID' && (ride.status == 'COMPLETED' || ride.status == 'CLOSED')) {
       return [
         Text(
           ride.paymentMethod == 'CASH' ? t('track.paid_cash') : t('track.paid'),
           style: const TextStyle(
               color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800),
         ),
-        if (ride.rating == null) ...[
-          const SizedBox(height: 10),
-          Text(t('track.rate'), style: Brand.micro),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              for (var n = 1; n <= 5; n++)
-                IconButton(
-                  padding: const EdgeInsets.only(right: 2),
-                  constraints: const BoxConstraints(),
-                  onPressed: _busy
-                      ? null
-                      : () => _act(() => widget.api.rateRide(ride.token!, n)),
-                  icon: const Icon(Icons.star_border, size: 26, color: Brand.amber),
-                ),
-            ],
-          ),
-        ] else ...[
-          const SizedBox(height: 8),
-          Text(t('track.thanks'), style: Brand.micro),
-        ],
-        const SizedBox(height: 10),
-        PrimaryButton(label: t('track.new_ride'), onPressed: _startOver),
+        ..._mandatoryRatingAndNext(ride),
+      ];
+    }
+
+    if (ride.status == 'CLOSED') {
+      return [
+        Text(
+          ride.paymentMethod == 'CASH' ? t('track.paid_cash') : t('track.paid'),
+          style: const TextStyle(
+              color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800),
+        ),
+        ..._mandatoryRatingAndNext(ride),
       ];
     }
 
@@ -1968,65 +2464,55 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       ];
     }
 
-    // The fare has been asked for, or the ride is finished and unpaid.
-    if (ride.payDue || ride.status == 'COMPLETED') {
-      if (ride.cashDeclaredAt != null) {
-        return [
-          Text(t('track.cash_recorded'),
-              style: const TextStyle(
-                  color: Brand.green, fontSize: 12, fontWeight: FontWeight.w700)),
-        ];
-      }
+    // Completed & awaiting payment (or cash confirmation): show payment + mandatory rating
+    if (ride.status == 'COMPLETED') {
       return [
-        if (ride.payDue && ride.status != 'COMPLETED') ...[
-          Text(t('track.almost_there'),
+        ..._passengerPaymentSection(ride),
+        ..._mandatoryRatingAndNext(ride),
+      ];
+    }
+
+    // Right after motari accepts (ASSIGNED / ARRIVED / IN_RIDE):
+    // immediately show Make Payment (+3.1% MoMo) & "I paid cash" + Ring Bell!
+    if (ride.live) {
+      return [
+        if (ride.paymentStatus == 'PAID')
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              t('track.paid'),
               style: const TextStyle(
-                  color: Brand.amber, fontSize: 11.5, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-        ],
-        Row(
-          children: [
-            Expanded(
-              child: PrimaryButton(
-                label: t('track.pay_momo'),
-                icon: Icons.smartphone,
-                onPressed: _busy
-                    ? null
-                    : () => _act(() => widget.api.payRide(
-                          ride.token!,
-                          phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
-                        )),
-              ),
+                  color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: OutlinedButton(
-                onPressed:
-                    _busy ? null : () => _act(() => widget.api.declareCash(ride.token!)),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Brand.text,
-                  side: const BorderSide(color: Brand.line),
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-                child: Text(
-                  t('track.paid_cash_button'),
-                  style: const TextStyle(
-                      fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.5),
-                ),
-              ),
-            ),
-          ],
-        ),
-        if (ride.paymentStatus == 'PENDING' && ride.paymentMethod == 'PLATFORM') ...[
+          )
+        else
+          ..._passengerPaymentSection(ride),
+        if (ride.status != 'IN_RIDE' && ride.movementProgressM < 400.0) ...[
           const SizedBox(height: 8),
-          Text(t('track.approve_on_phone'),
-              style: const TextStyle(color: Brand.amber, fontSize: 11)),
+          OutlinedButton(
+            onPressed: _busy
+                ? null
+                : () async {
+                    await _act(() => widget.api.cancelRide(ride.token!));
+                    if (mounted && (_ride?.done ?? false)) _release();
+                  },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Brand.red,
+              side: const BorderSide(color: Color(0xFF451A1A)),
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text(
+              t('track.cancel'),
+              style: const TextStyle(
+                  fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8),
+            ),
+          ),
         ],
       ];
     }
 
-    // Still early enough to change their mind.
+    // Still searching for a motari: allow cancel.
     return [
       OutlinedButton(
         onPressed: _busy

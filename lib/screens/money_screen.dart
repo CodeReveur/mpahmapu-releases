@@ -13,13 +13,20 @@ import '../widgets/fee_banner.dart';
 class MoneyScreen extends StatefulWidget {
   final Api api;
   final Fees? fees;
-  const MoneyScreen({super.key, required this.api, this.fees});
+  final bool focusTrips;
+  const MoneyScreen({
+    super.key,
+    required this.api,
+    this.fees,
+    this.focusTrips = false,
+  });
 
   @override
   State<MoneyScreen> createState() => _MoneyScreenState();
 }
 
 class _MoneyScreenState extends State<MoneyScreen> {
+  final _tripsKey = GlobalKey();
   MotariHistory? _history;
   Fees? _fees;
   /// Where a withdrawal would go, and what it would cost. Read from the
@@ -49,7 +56,21 @@ class _MoneyScreenState extends State<MoneyScreen> {
     } catch (_) {
       // Keep whatever is on screen; the pull-to-refresh can try again.
     }
-    if (mounted) setState(() => _loading = false);
+    if (mounted) {
+      setState(() => _loading = false);
+      if (widget.focusTrips) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final ctx = _tripsKey.currentContext;
+          if (ctx != null) {
+            Scrollable.ensureVisible(
+              ctx,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
+    }
   }
 
   /// Send the wallet to the number on the account. No amount means all of it.
@@ -172,7 +193,7 @@ class _MoneyScreenState extends State<MoneyScreen> {
                       ...h.payouts.map(_payoutRow),
                       const SizedBox(height: 16),
                     ],
-                    Text(t('money.trips'), style: Brand.micro),
+                    Text(t('money.trips'), key: _tripsKey, style: Brand.micro),
                     const SizedBox(height: 8),
                     if (h.rides.isEmpty)
                       Text(t('money.no_trips'),

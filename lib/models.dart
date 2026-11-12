@@ -74,6 +74,10 @@ class Ride {
   final int? offeredFareRwf;
   final int? finalFareRwf;
   final double riddenDistanceM;
+  final double driverMovedM;
+  final double passengerMovedM;
+  final double momoChargeRate;
+  final int? momoTotalRwf;
   final String? paymentStatus;
   final String? paymentMethod;
   final bool payViaPlatform;
@@ -89,6 +93,9 @@ class Ride {
   final bool payDue;
   /// When the passenger said they paid cash; the grace period runs from here.
   final DateTime? cashDeclaredAt;
+  final DateTime? cashDeclinedAt;
+  final DateTime? lastRingAt;
+  final String? lastRingBy;
   final DateTime? requestedAt;
 
   const Ride({
@@ -111,6 +118,10 @@ class Ride {
     this.offeredFareRwf,
     this.finalFareRwf,
     required this.riddenDistanceM,
+    this.driverMovedM = 0,
+    this.passengerMovedM = 0,
+    this.momoChargeRate = 0.031,
+    this.momoTotalRwf,
     this.paymentStatus,
     this.paymentMethod,
     required this.payViaPlatform,
@@ -122,14 +133,33 @@ class Ride {
     this.passengerRating,
     this.payDue = false,
     this.cashDeclaredAt,
+    this.cashDeclinedAt,
+    this.lastRingAt,
+    this.lastRingBy,
     this.requestedAt,
   });
 
   bool get isCourier => kind == 'COURIER';
 
+  /// Effective movement toward the 400m threshold.
+  double get movementProgressM {
+    if (isCourier) {
+      return riddenDistanceM > driverMovedM ? riddenDistanceM : driverMovedM;
+    }
+    final both = driverMovedM < passengerMovedM ? driverMovedM : passengerMovedM;
+    return riddenDistanceM > both ? riddenDistanceM : both;
+  }
+
+  /// True once the 400-metre movement threshold is reached (or status is IN_RIDE/COMPLETED).
+  bool get canFinish =>
+      status == 'IN_RIDE' || status == 'COMPLETED' || movementProgressM >= 400.0;
+
   /// What this ride is worth right now: the settled fare, else the price the
   /// passenger named, else the quote.
   int? get fareRwf => finalFareRwf ?? offeredFareRwf ?? quotedFareRwf;
+
+  int? get fareWithMomoChargeRwf =>
+      momoTotalRwf ?? (fareRwf != null ? (fareRwf! * (1.0 + momoChargeRate)).round() : null);
 
   factory Ride.fromJson(Map<String, dynamic> j) => Ride(
         id: j['id'] as String,
@@ -151,6 +181,10 @@ class Ride {
         offeredFareRwf: (j['offeredFareRwf'] as num?)?.toInt(),
         finalFareRwf: (j['finalFareRwf'] as num?)?.toInt(),
         riddenDistanceM: (j['riddenDistanceM'] as num?)?.toDouble() ?? 0,
+        driverMovedM: (j['driverMovedM'] as num?)?.toDouble() ?? 0,
+        passengerMovedM: (j['passengerMovedM'] as num?)?.toDouble() ?? 0,
+        momoChargeRate: (j['momoChargeRate'] as num?)?.toDouble() ?? 0.031,
+        momoTotalRwf: (j['momoTotalRwf'] as num?)?.toInt(),
         paymentStatus: j['paymentStatus'] as String?,
         paymentMethod: j['paymentMethod'] as String?,
         payViaPlatform: j['payViaPlatform'] as bool? ?? false,
@@ -162,6 +196,9 @@ class Ride {
         passengerRating: (j['passengerRating'] as num?)?.toInt(),
         payDue: j['payDue'] as bool? ?? false,
         cashDeclaredAt: DateTime.tryParse(j['cashDeclaredAt'] as String? ?? ''),
+        cashDeclinedAt: DateTime.tryParse(j['cashDeclinedAt'] as String? ?? ''),
+        lastRingAt: DateTime.tryParse(j['lastRingAt'] as String? ?? ''),
+        lastRingBy: j['lastRingBy'] as String?,
         requestedAt: DateTime.tryParse(j['requestedAt'] as String? ?? ''),
       );
 }
@@ -313,6 +350,7 @@ class MotariState {
   final Offer? offer;
   final List<NearbyRide> nearby;
   final Fees? fees;
+  final String mapProvider;
 
   const MotariState({
     this.profile,
@@ -320,6 +358,7 @@ class MotariState {
     this.offer,
     this.nearby = const [],
     this.fees,
+    this.mapProvider = 'google',
   });
 
   factory MotariState.fromJson(Map<String, dynamic> j) => MotariState(
@@ -334,6 +373,7 @@ class MotariState {
             .map((e) => NearbyRide.fromJson(e as Map<String, dynamic>))
             .toList(),
         fees: j['fees'] == null ? null : Fees.fromJson(j['fees'] as Map<String, dynamic>),
+        mapProvider: j['mapProvider'] as String? ?? 'google',
       );
 }
 
@@ -460,26 +500,92 @@ class Quote {
       );
 }
 
-/// How much moto there is around the passenger right now.
+/// An active motari visible on the passenger map.
+class ActiveMotari {
+  final String id;
+  final String name;
+  final String plateNumber;
+  final double latitude;
+  final double longitude;
+  final bool occupied;
+  final double distanceM;
+  final double? rating;
+  final bool courier;
+
+  const ActiveMotari({
+    required this.id,
+    required this.name,
+    required this.plateNumber,
+    required this.latitude,
+    required this.longitude,
+    this.occupied = false,
+    this.distanceM = 0,
+    this.rating,
+    this.courier = true,
+  });
+
+  factory ActiveMotari.fromJson(Map<String, dynamic> j) => ActiveMotari(
+        id: j['id']?.toString() ?? '',
+        name: j['name'] as String? ?? 'Motari',
+        plateNumber: j['plateNumber'] as String? ?? '',
+        latitude: (j['latitude'] as num?)?.toDouble() ?? 0,
+        longitude: (j['longitude'] as num?)?.toDouble() ?? 0,
+        occupied: j['occupied'] as bool? ?? false,
+        distanceM: (j['distanceM'] as num?)?.toDouble() ?? 0,
+        rating: (j['rating'] as num?)?.toDouble(),
+        courier: j['courier'] as bool? ?? true,
+      );
+}
+
+/// How much moto there is around the passenger right now, including fleet occupation rate and active motaris.
 class Supply {
   final String kind;
   final int active;
   final double? nearestM;
   final int minFareRwf;
+  final int totalOnline;
+  final int available;
+  final int occupied;
+  final int occupationRate;
+  final String mapProvider;
+  final List<ActiveMotari> motaris;
 
   const Supply({
     required this.kind,
     required this.active,
     this.nearestM,
     required this.minFareRwf,
+    this.totalOnline = 0,
+    this.available = 0,
+    this.occupied = 0,
+    this.occupationRate = 0,
+    this.mapProvider = 'google',
+    this.motaris = const [],
   });
 
-  factory Supply.fromJson(Map<String, dynamic> j) => Supply(
-        kind: j['kind'] as String? ?? 'RIDE',
-        active: (j['active'] as num?)?.toInt() ?? 0,
-        nearestM: (j['nearestM'] as num?)?.toDouble(),
-        minFareRwf: (j['minFareRwf'] as num?)?.toInt() ?? 0,
-      );
+  factory Supply.fromJson(Map<String, dynamic> j) {
+    final activeVal = (j['active'] as num?)?.toInt() ?? 0;
+    final availVal = (j['available'] as num?)?.toInt() ?? activeVal;
+    final occVal = (j['occupied'] as num?)?.toInt() ?? 0;
+    final totalVal = (j['totalOnline'] as num?)?.toInt() ?? (availVal + occVal);
+    final rateVal = (j['occupationRate'] as num?)?.toInt() ??
+        (totalVal > 0 ? ((occVal * 100) / totalVal).round() : 0);
+    return Supply(
+      kind: j['kind'] as String? ?? 'RIDE',
+      active: activeVal,
+      nearestM: (j['nearestM'] as num?)?.toDouble(),
+      minFareRwf: (j['minFareRwf'] as num?)?.toInt() ?? 0,
+      totalOnline: totalVal,
+      available: availVal,
+      occupied: occVal,
+      occupationRate: rateVal,
+      mapProvider: j['mapProvider'] as String? ?? 'google',
+      motaris: ((j['motaris'] as List<dynamic>?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(ActiveMotari.fromJson)
+          .toList(),
+    );
+  }
 }
 
 /// The motari who took the ride, as the passenger sees them.
@@ -536,11 +642,18 @@ class PassengerRide {
   final int? finalFareRwf;
   final double? quotedDistanceM;
   final double riddenDistanceM;
+  final double driverMovedM;
+  final double passengerMovedM;
+  final double momoChargeRate;
+  final int? momoTotalRwf;
 
   final String? paymentMethod;
   final String? paymentStatus;
   final bool payDue;
   final DateTime? cashDeclaredAt;
+  final DateTime? cashDeclinedAt;
+  final DateTime? lastRingAt;
+  final String? lastRingBy;
   /// A parcel: when the motari took it, said they delivered it, and it was agreed.
   final DateTime? pickedUpAt;
   final DateTime? deliveredAt;
@@ -576,10 +689,17 @@ class PassengerRide {
     this.finalFareRwf,
     this.quotedDistanceM,
     required this.riddenDistanceM,
+    this.driverMovedM = 0,
+    this.passengerMovedM = 0,
+    this.momoChargeRate = 0.031,
+    this.momoTotalRwf,
     this.paymentMethod,
     this.paymentStatus,
     this.payDue = false,
     this.cashDeclaredAt,
+    this.cashDeclinedAt,
+    this.lastRingAt,
+    this.lastRingBy,
     this.pickedUpAt,
     this.deliveredAt,
     this.deliveryConfirmedAt,
@@ -605,8 +725,21 @@ class PassengerRide {
   /// EXPIRED that is never sent left those rides looking live forever.
   bool get done => const ['CLOSED', 'CANCELLED', 'NO_MATCH'].contains(status);
 
+  /// Effective movement toward the 400m threshold.
+  double get movementProgressM {
+    if (isCourier) {
+      return riddenDistanceM > driverMovedM ? riddenDistanceM : driverMovedM;
+    }
+    final both = driverMovedM < passengerMovedM ? driverMovedM : passengerMovedM;
+    return riddenDistanceM > both ? riddenDistanceM : both;
+  }
+
   /// The fare the passenger actually owes: their own price if they named one.
   int? get fareRwf => finalFareRwf ?? offeredFareRwf ?? quotedFareRwf;
+
+  /// Total fare with 3.1% MoMo charge included.
+  int? get fareWithMomoChargeRwf =>
+      momoTotalRwf ?? (fareRwf != null ? (fareRwf! * (1.0 + momoChargeRate)).round() : null);
 
   factory PassengerRide.fromJson(Map<String, dynamic> j) => PassengerRide(
         id: j['id'] as String? ?? '',
@@ -627,10 +760,17 @@ class PassengerRide {
         finalFareRwf: (j['finalFareRwf'] as num?)?.toInt(),
         quotedDistanceM: (j['quotedDistanceM'] as num?)?.toDouble(),
         riddenDistanceM: (j['riddenDistanceM'] as num?)?.toDouble() ?? 0,
+        driverMovedM: (j['driverMovedM'] as num?)?.toDouble() ?? 0,
+        passengerMovedM: (j['passengerMovedM'] as num?)?.toDouble() ?? 0,
+        momoChargeRate: (j['momoChargeRate'] as num?)?.toDouble() ?? 0.031,
+        momoTotalRwf: (j['momoTotalRwf'] as num?)?.toInt(),
         paymentMethod: j['paymentMethod'] as String?,
         paymentStatus: j['paymentStatus'] as String?,
         payDue: j['payDue'] as bool? ?? false,
         cashDeclaredAt: DateTime.tryParse(j['cashDeclaredAt'] as String? ?? ''),
+        cashDeclinedAt: DateTime.tryParse(j['cashDeclinedAt'] as String? ?? ''),
+        lastRingAt: DateTime.tryParse(j['lastRingAt'] as String? ?? ''),
+        lastRingBy: j['lastRingBy'] as String?,
         pickedUpAt: DateTime.tryParse(j['pickedUpAt'] as String? ?? ''),
         deliveredAt: DateTime.tryParse(j['deliveredAt'] as String? ?? ''),
         deliveryConfirmedAt: DateTime.tryParse(j['deliveryConfirmedAt'] as String? ?? ''),

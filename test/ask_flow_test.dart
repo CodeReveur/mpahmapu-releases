@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:motari/i18n.dart';
+import 'package:motari/models.dart';
 
 /// The order the sheet asks in, checked as rules rather than as pixels.
 ///
@@ -56,6 +57,9 @@ void main() {
         'ask.approx_amount', 'ask.approx_hint', 'ask.fare_label', 'ask.you_label',
         'ask.done', 'ask.find', 'ask.find_delivery', 'ask.use_my_location',
         'ask.tap_map_hint', 'ask.at_least', 'ask.too_little',
+        'motari.request.available', 'motari.request.parcel_note',
+        'common.nav.dashboard', 'common.nav.register', 'common.nav.signout',
+        'update.check', 'update.up_to_date', 'register.signin_yourself',
       ];
       for (final code in Lang.codes) {
         appLanguage.value = code;
@@ -63,6 +67,47 @@ void main() {
           expect(t(key), isNot(key), reason: '$code is missing $key');
         }
       }
+    });
+
+    test('400m dual-device movement threshold and 3.1% MoMo fee are enforced', () {
+      final waitingRide = Ride.fromJson({
+        'id': 'r-1',
+        'status': 'ASSIGNED',
+        'kind': 'RIDE',
+        'fareMode': 'QUOTED',
+        'passengerName': 'Jean',
+        'pickupLat': -1.9441,
+        'pickupLng': 30.0619,
+        'baseFareRwf': 400,
+        'perKmRwf': 150,
+        'offeredFareRwf': 1000,
+        'riddenDistanceM': 180.0,
+        'driverMovedM': 420.0,
+        'passengerMovedM': 180.0,
+        'payViaPlatform': false,
+      });
+      expect(waitingRide.movementProgressM, 180.0);
+      expect(waitingRide.canFinish, isFalse);
+      expect(waitingRide.fareWithMomoChargeRwf, 1031);
+
+      final readyRide = Ride.fromJson({
+        'id': 'r-1',
+        'status': 'ASSIGNED',
+        'kind': 'RIDE',
+        'fareMode': 'QUOTED',
+        'passengerName': 'Jean',
+        'pickupLat': -1.9441,
+        'pickupLng': 30.0619,
+        'baseFareRwf': 400,
+        'perKmRwf': 150,
+        'offeredFareRwf': 1000,
+        'riddenDistanceM': 415.0,
+        'driverMovedM': 430.0,
+        'passengerMovedM': 415.0,
+        'payViaPlatform': false,
+      });
+      expect(readyRide.movementProgressM, 415.0);
+      expect(readyRide.canFinish, isTrue);
     });
   });
 }

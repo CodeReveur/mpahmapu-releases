@@ -13,6 +13,7 @@ import 'permissions.dart';
 import 'screens/sign_in_screen.dart';
 import 'screens/splash_screen.dart';
 import 'theme.dart';
+import 'updater.dart';
 
 /// Motari — the moto taxi app for MpahMapu.
 ///
@@ -49,6 +50,7 @@ class _MotariAppState extends State<MotariApp> with WidgetsBindingObserver {
   /// Most people opening this app want a ride, not work. A motari says so once
   /// and the app remembers by keeping their session.
   bool _driving = false;
+  bool _passengerMode = false;
 
   /// Location being switched off mid-shift, which puts the gate back up.
   StreamSubscription<ServiceStatus>? _locationWatch;
@@ -61,6 +63,9 @@ class _MotariAppState extends State<MotariApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Initialize background service, boot auto-start handling, and OTA self-updater.
+    AppUpdater.initialize();
 
     // A motari stays signed in until they log out, so the app opens straight
     // into work if a session is already on the device.
@@ -90,7 +95,10 @@ class _MotariAppState extends State<MotariApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Permission can be taken away in the system settings, which the service
     // stream says nothing about: coming back is the moment to ask again.
-    if (state == AppLifecycleState.resumed && _permitted) _recheckLocation();
+    if (state == AppLifecycleState.resumed) {
+      if (_permitted) _recheckLocation();
+      AppUpdater.checkAndAutoUpdate(silent: true);
+    }
   }
 
   Future<void> _recheckLocation() async {
@@ -133,18 +141,32 @@ class _MotariAppState extends State<MotariApp> with WidgetsBindingObserver {
       return PermissionGate(onReady: () => setState(() => _permitted = true));
     }
     // A signed-in motari is here to work, and goes straight to the map.
-    if (_api.signedIn) {
-      return DriveScreen(api: _api, onSignedOut: _onSignedOut);
+    if (_api.signedIn && !_passengerMode) {
+      return DriveScreen(
+        api: _api,
+        onSignedOut: _onSignedOut,
+        onSwitchToPassenger: () => setState(() => _passengerMode = true),
+      );
     }
-    if (_driving) {
+    if (_driving && !_api.signedIn) {
       return SignInScreen(
         api: _api,
-        onSignedIn: () => setState(() {}),
+        onSignedIn: () => setState(() => _passengerMode = false),
         onBack: () => setState(() => _driving = false),
       );
     }
-    return RideScreen(api: _api, onDrive: () => setState(() => _driving = true));
+    return RideScreen(
+      api: _api,
+      onDrive: () => setState(() {
+        _passengerMode = false;
+        _driving = true;
+      }),
+      onSignedOut: _onSignedOut,
+    );
   }
 
-  void _onSignedOut() => setState(() => _driving = false);
+  void _onSignedOut() => setState(() {
+        _driving = false;
+        _passengerMode = false;
+      });
 }

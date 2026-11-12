@@ -25,6 +25,7 @@ class _PermissionGateState extends State<PermissionGate>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   Access _location = Access.ask;
   Access _notifications = Access.ask;
+  Access _overlay = Access.ask;
   bool _checking = true;
   bool _asking = false;
 
@@ -56,10 +57,12 @@ class _PermissionGateState extends State<PermissionGate>
   Future<void> _check({bool thenAsk = false}) async {
     final location = await Permissions.locationStatus();
     final notifications = await Permissions.notificationStatus();
+    final overlay = await Permissions.overlayStatus();
     if (!mounted) return;
     setState(() {
       _location = location;
       _notifications = notifications;
+      _overlay = overlay;
       _checking = false;
     });
     // Everything already in place: no reason to make them read this screen.
@@ -82,6 +85,11 @@ class _PermissionGateState extends State<PermissionGate>
     if (_notifications == Access.ask) {
       final notifications = await Permissions.requestNotifications();
       if (mounted) setState(() => _notifications = notifications);
+    }
+
+    if (_overlay == Access.ask) {
+      final overlay = await Permissions.requestOverlay();
+      if (mounted) setState(() => _overlay = overlay);
     }
 
     if (!mounted) return;
@@ -171,6 +179,18 @@ class _PermissionGateState extends State<PermissionGate>
                                 final next = await Permissions.requestNotifications();
                                 if (mounted) setState(() => _notifications = next);
                               },
+                      ),
+                      const SizedBox(height: 8),
+                      _row(
+                        icon: Icons.phone_callback_outlined,
+                        title: t('gate.overlay'),
+                        why: t('gate.overlay.why'),
+                        access: _overlay,
+                        required: false,
+                        onFix: () async {
+                          final next = await Permissions.requestOverlay();
+                          if (mounted) setState(() => _overlay = next);
+                        },
                       ),
                       const SizedBox(height: 8),
                       _row(

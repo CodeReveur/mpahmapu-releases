@@ -15,16 +15,20 @@ class Brand {
 
   /// The uppercase micro-label used throughout both web apps.
   static const micro = TextStyle(
-    fontSize: 9,
+    fontSize: 9.5,
     fontWeight: FontWeight.w800,
-    letterSpacing: 1.1,
+    letterSpacing: 1.0,
+    height: 1.2,
     color: muted,
+    decoration: TextDecoration.none,
   );
 
   static ThemeData get theme => ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         scaffoldBackgroundColor: black,
+        fontFamily: 'Roboto',
+        fontFamilyFallback: const ['Inter', 'sans-serif'],
         colorScheme: const ColorScheme.dark(
           primary: orange,
           secondary: orange,
@@ -32,25 +36,31 @@ class Brand {
           error: red,
         ),
         textTheme: const TextTheme(
-          bodyMedium: TextStyle(color: text, fontSize: 13),
-          bodySmall: TextStyle(color: muted, fontSize: 11.5),
-          titleMedium: TextStyle(color: text, fontSize: 15, fontWeight: FontWeight.w800),
+          bodyLarge: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w500, height: 1.35, decoration: TextDecoration.none),
+          bodyMedium: TextStyle(color: text, fontSize: 13, fontWeight: FontWeight.w500, height: 1.35, decoration: TextDecoration.none),
+          bodySmall: TextStyle(color: muted, fontSize: 11.5, fontWeight: FontWeight.w500, height: 1.3, decoration: TextDecoration.none),
+          titleLarge: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.w900, letterSpacing: -0.3, decoration: TextDecoration.none),
+          titleMedium: TextStyle(color: text, fontSize: 15, fontWeight: FontWeight.w800, letterSpacing: -0.2, decoration: TextDecoration.none),
+          titleSmall: TextStyle(color: text, fontSize: 13, fontWeight: FontWeight.w700, decoration: TextDecoration.none),
+          labelLarge: TextStyle(color: text, fontSize: 12, fontWeight: FontWeight.w800, letterSpacing: 0.5, decoration: TextDecoration.none),
+          labelMedium: TextStyle(color: muted, fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 0.4, decoration: TextDecoration.none),
+          labelSmall: TextStyle(color: dim, fontSize: 9.5, fontWeight: FontWeight.w800, letterSpacing: 0.8, decoration: TextDecoration.none),
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
           fillColor: const Color(0xFF161616),
-          hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12.5),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          hintStyle: const TextStyle(color: Color(0xFF888888), fontSize: 12.5, fontWeight: FontWeight.w500),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: Color(0xFF2E2E2E)),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: Color(0xFF2E2E2E)),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: orange, width: 1.5),
           ),
         ),

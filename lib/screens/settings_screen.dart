@@ -7,6 +7,7 @@ import '../i18n.dart';
 import '../models.dart';
 import '../permissions.dart';
 import '../theme.dart';
+import '../updater.dart';
 import '../widgets/language_button.dart';
 
 /// Instant payout, parcels, and the two things only support can do: change the
@@ -15,12 +16,14 @@ class SettingsScreen extends StatefulWidget {
   final Api api;
   final MotariProfile? profile;
   final VoidCallback onSignedOut;
+  final VoidCallback? onSwitchToPassenger;
 
   const SettingsScreen({
     super.key,
     required this.api,
     required this.profile,
     required this.onSignedOut,
+    this.onSwitchToPassenger,
   });
 
   @override
@@ -255,6 +258,76 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _referralPanel(),
 
           const Panel(child: LanguageButton(inline: true)),
+          const SizedBox(height: 10),
+          if (widget.onSwitchToPassenger != null) ...[
+            Panel(
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                  widget.onSwitchToPassenger!();
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    const Icon(Icons.two_wheeler, size: 15, color: Brand.orange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        t('common.nav.passenger'),
+                        style: const TextStyle(
+                          color: Brand.text,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, size: 16, color: Brand.dim),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          Panel(
+            child: ValueListenableBuilder<UpdateStatus>(
+              valueListenable: AppUpdater.status,
+              builder: (context, s, _) => GestureDetector(
+                onTap: () async {
+                  final found = await AppUpdater.checkAndAutoUpdate(silent: false);
+                  if (!found && context.mounted) {
+                    setState(() {
+                      _notice = t('update.up_to_date', {'version': s.currentVersion});
+                    });
+                  }
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    const Icon(Icons.system_update_alt, size: 15, color: Brand.orange),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            t('update.check'),
+                            style: const TextStyle(
+                              color: Brand.text,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text('v${s.currentVersion}', style: Brand.micro),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.chevron_right, size: 16, color: Brand.dim),
+                  ],
+                ),
+              ),
+            ),
+          ),
           const SizedBox(height: 10),
           Panel(
             child: GestureDetector(

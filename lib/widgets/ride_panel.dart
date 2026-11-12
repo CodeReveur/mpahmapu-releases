@@ -16,13 +16,16 @@ class RidePanel extends StatefulWidget {
   final void Function(String rideId) onComplete;
   final void Function(String rideId) onParcelReceived;
   final void Function(String rideId) onParcelDelivered;
+  final void Function(String rideId) onConfirmCash;
   final void Function(String rideId) onDenyCash;
+  final void Function(String rideId) onRingPassenger;
   final void Function(String rideId, int stars) onRate;
   final void Function(String rideId) onHandBack;
   final VoidCallback onGoOnline;
   final void Function(String phone) onCall;
   final void Function(String plate, String? brand, String? legalName) onSaveProfile;
   final VoidCallback onOpenMoney;
+  final VoidCallback? onOpenTrips;
   final VoidCallback onOpenSettings;
 
   const RidePanel({
@@ -35,13 +38,16 @@ class RidePanel extends StatefulWidget {
     required this.onComplete,
     required this.onParcelReceived,
     required this.onParcelDelivered,
+    required this.onConfirmCash,
     required this.onDenyCash,
+    required this.onRingPassenger,
     required this.onRate,
     required this.onHandBack,
     required this.onGoOnline,
     required this.onCall,
     required this.onSaveProfile,
     required this.onOpenMoney,
+    this.onOpenTrips,
     required this.onOpenSettings,
   });
 
@@ -147,7 +153,7 @@ class _RidePanelState extends State<RidePanel> {
           if (key == 'money') {
             widget.onOpenMoney();
           } else if (key == 'trips') {
-            widget.onOpenMoney();
+            (widget.onOpenTrips ?? widget.onOpenMoney)();
           } else if (key == 'settings') {
             widget.onOpenSettings();
           } else {
@@ -393,22 +399,14 @@ class _RidePanelState extends State<RidePanel> {
   /* ── the ride in hand ─────────────────────────────────────────────────── */
 
   List<Widget> _activeRide(Ride ride) {
-    final title = ride.isCourier
-        ? switch (ride.status) {
-            'ASSIGNED' || 'ARRIVED' => t('parcel.go_collect'),
-            'IN_RIDE' => t('parcel.carrying'),
-            'COMPLETED' => ride.deliveredAt == null
-                ? t('parcel.at_destination')
-                : t('parcel.awaiting_owner'),
-            _ => t('parcel.parcel'),
-          }
-        : switch (ride.status) {
-            'ASSIGNED' => t('ride.head_to_pickup'),
-            'ARRIVED' => t('ride.waiting_passenger'),
-            'IN_RIDE' => t('ride.in_progress'),
-            'COMPLETED' => t('ride.finished'),
-            _ => t('ride.ride'),
-          };
+    final canFinish = ride.canFinish;
+    final title = switch (ride.status) {
+      'ASSIGNED' || 'ARRIVED' =>
+        canFinish ? t('ride.in_progress') : t('ride.waiting_to_start'),
+      'IN_RIDE' => t('ride.in_progress'),
+      'COMPLETED' || 'CLOSED' => t('ride.finished'),
+      _ => t('ride.ride'),
+    };
 
     return [
       const SizedBox(height: 4),
@@ -420,12 +418,19 @@ class _RidePanelState extends State<RidePanel> {
                     color: Brand.text, fontSize: 14, fontWeight: FontWeight.w900)),
           ),
           if (ride.isCourier)
-            Text(t('panel.courier'),
-                style: const TextStyle(
-                    color: Brand.orange,
-                    fontSize: 9,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+              decoration: BoxDecoration(
+                color: Brand.orange,
+                borderRadius: BorderRadius.circular(5),
+              ),
+              child: Text(t('panel.courier'),
+                  style: const TextStyle(
+                      color: Colors.black,
+                      fontSize: 8.5,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.8)),
+            ),
         ],
       ),
       const SizedBox(height: 8),
@@ -440,6 +445,24 @@ class _RidePanelState extends State<RidePanel> {
                       style: const TextStyle(
                           color: Brand.text, fontSize: 13, fontWeight: FontWeight.w800)),
                 ),
+                // Bell icon to ring the passenger's device
+                if (ride.status != 'CLOSED') ...[
+                  GestureDetector(
+                    onTap: widget.busy ? null : () => widget.onRingPassenger(ride.id),
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF261C10),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Brand.orange, width: 1.5),
+                      ),
+                      child: const Icon(Icons.notifications_active,
+                          size: 16, color: Brand.orange),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
                 if (ride.passengerPhone != null)
                   GestureDetector(
                     onTap: () => widget.onCall(ride.passengerPhone!),
@@ -467,13 +490,80 @@ class _RidePanelState extends State<RidePanel> {
                 child: Text(t('ride.not_on_map'), style: Brand.micro),
               ),
             const SizedBox(height: 6),
-            Text(
-              ride.fareRwf != null
-                  ? '${rwf(ride.fareRwf)}${ride.offeredFareRwf != null ? ' · ${t('ride.their_price')}' : ''}'
-                  : '${km(ride.riddenDistanceM)} · ${rwf(ride.baseFareRwf)} + ${rwf(ride.perKmRwf)}/km',
-              style: const TextStyle(
-                  color: Brand.text, fontSize: 13, fontWeight: FontWeight.w900),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  ride.fareRwf != null
+                      ? '${rwf(ride.fareRwf)}${ride.offeredFareRwf != null ? ' · ${t('ride.their_price')}' : ''}'
+                      : '${km(ride.riddenDistanceM)} · ${rwf(ride.baseFareRwf)} + ${rwf(ride.perKmRwf)}/km',
+                  style: const TextStyle(
+                      color: Brand.text, fontSize: 13, fontWeight: FontWeight.w900),
+                ),
+                if (ride.cashDeclaredAt != null && ride.paymentStatus != 'PAID')
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF281D0B),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Brand.amber),
+                    ),
+                    child: const Text(
+                      'CASH DECLARED',
+                      style: TextStyle(
+                        color: Brand.amber,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  )
+                else if (ride.paymentStatus == 'PAID')
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0E2918),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Brand.green),
+                    ),
+                    child: const Text(
+                      'PAID',
+                      style: TextStyle(
+                        color: Brand.green,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+              ],
             ),
+            if (ride.status == 'ASSIGNED' || ride.status == 'ARRIVED' || ride.status == 'IN_RIDE') ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: canFinish ? Brand.green : Brand.amber,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      canFinish ? t('ride.in_progress') : t('ride.waiting_to_start'),
+                      style: TextStyle(
+                        color: canFinish ? Brand.green : Brand.amber,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -482,131 +572,114 @@ class _RidePanelState extends State<RidePanel> {
     ];
   }
 
-  List<Widget> _rideActions(Ride ride) {
-    // A parcel is handed over rather than sensed, so it has its own sequence:
-    // collect it, carry it, say it was delivered, and wait on the owner.
-    if (ride.isCourier) return _parcelActions(ride);
-    switch (ride.status) {
-      case 'ASSIGNED':
-        return [
-          PrimaryButton(
-            label: t('ride.arrived'),
-            onPressed: widget.busy ? null : () => widget.onArrived(ride.id),
+  Future<void> _onFinishPressed(Ride ride) async {
+    if (ride.cashDeclaredAt != null && ride.paymentStatus != 'PAID') {
+      final decision = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF141414),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: const BorderSide(color: Color(0xFF2E2E2E)),
           ),
-          const SizedBox(height: 8),
-          _handBack(ride),
-        ];
-      // The ride starts itself once the two of them pull away together.
-      case 'ARRIVED':
-        return [
-          _note(t('ride.starts_together'), Brand.amber),
-          const SizedBox(height: 8),
-          _handBack(ride),
-        ];
-      case 'IN_RIDE':
-        // A destination the map never had cannot be sensed: that is the one
-        // ride still needing a tap.
-        if (ride.destLat != null) {
-          return [_note(t('ride.auto_complete'), Brand.muted)];
-        }
-        return [
-          PrimaryButton(
-            label: t('ride.complete'),
-            icon: Icons.check_circle_outline,
-            onPressed: widget.busy ? null : () => widget.onComplete(ride.id),
+          title: Text(
+            t('ride.cash_confirm_title'),
+            style: const TextStyle(
+                color: Colors.white, fontSize: 15, fontWeight: FontWeight.w900),
           ),
-        ];
-      // However the passenger paid, the platform already knows. The motari
-      // only speaks up when the cash never came.
-      case 'COMPLETED':
-        if (ride.paymentStatus == 'PAID') {
-          return [
-            Text(
-              ride.paymentMethod == 'CASH'
-                  ? t('ride.paid_cash')
-                  : t('ride.paid_platform'),
-              style: const TextStyle(color: Brand.green, fontSize: 12, fontWeight: FontWeight.w800),
-            ),
-            ..._ratePassenger(ride),
-          ];
-        }
-        if (ride.cashDeclaredAt != null) {
-          return [
-            _note(t('ride.cash_declared'), Brand.amber),
-            const SizedBox(height: 8),
+          content: Text(
+            t('ride.cash_confirm_body'),
+            style: const TextStyle(color: Color(0xFFCCCCCC), fontSize: 13, height: 1.4),
+          ),
+          actions: [
             OutlinedButton(
-              onPressed: widget.busy ? null : () => widget.onDenyCash(ride.id),
+              onPressed: () => Navigator.of(ctx).pop(false),
               style: OutlinedButton.styleFrom(
                 foregroundColor: Brand.red,
-                side: const BorderSide(color: Color(0xFF451A1A)),
-                padding: const EdgeInsets.symmetric(vertical: 11),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                side: const BorderSide(color: Color(0xFF5A1E1E)),
               ),
-              child: Text(t('ride.not_paid'),
-                  style: const TextStyle(
-                      fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+              child: Text(
+                t('ride.decline_cash_btn'),
+                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800),
+              ),
             ),
-            ..._ratePassenger(ride),
-          ];
-        }
-        return [
-          _note(t('ride.awaiting_payment'), Brand.amber),
-          ..._ratePassenger(ride),
-        ];
-      default:
-        return const [];
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Brand.green,
+                foregroundColor: Colors.black,
+              ),
+              child: Text(
+                t('ride.confirm_cash_btn'),
+                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ],
+        ),
+      );
+      if (decision == true) {
+        widget.onConfirmCash(ride.id);
+      } else if (decision == false) {
+        widget.onDenyCash(ride.id);
+      }
+      return;
+    }
+
+    if (ride.isCourier) {
+      widget.onParcelDelivered(ride.id);
+    } else {
+      widget.onComplete(ride.id);
     }
   }
 
-  /// What a motari carrying a parcel is asked to do, one thing at a time.
-  List<Widget> _parcelActions(Ride ride) {
+  List<Widget> _rideActions(Ride ride) {
+    final canFinish = ride.canFinish;
+
     switch (ride.status) {
       case 'ASSIGNED':
       case 'ARRIVED':
-        return [
-          PrimaryButton(
-            label: t('parcel.received'),
-            icon: Icons.inventory_2,
-            onPressed: widget.busy ? null : () => widget.onParcelReceived(ride.id),
-          ),
-          const SizedBox(height: 8),
-          _handBack(ride),
-        ];
-
       case 'IN_RIDE':
         return [
-          PrimaryButton(
-            label: t('parcel.delivered'),
-            icon: Icons.check_circle_outline,
-            onPressed: widget.busy ? null : () => widget.onParcelDelivered(ride.id),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: widget.busy ? null : () => widget.onRingPassenger(ride.id),
+                  icon: const Icon(Icons.notifications_active, size: 15, color: Brand.orange),
+                  label: Text(
+                    t('ride.ring_passenger'),
+                    style: const TextStyle(
+                        fontSize: 11, fontWeight: FontWeight.w800, color: Brand.text),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Brand.orange),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                ),
+              ),
+              if (canFinish) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: PrimaryButton(
+                    label: ride.isCourier ? t('ride.finish_delivery') : t('ride.finish_ride'),
+                    icon: Icons.check_circle_outline,
+                    onPressed: widget.busy ? null : () => _onFinishPressed(ride),
+                  ),
+                ),
+              ],
+            ],
           ),
+          if (!canFinish) ...[
+            const SizedBox(height: 8),
+            _handBack(ride),
+          ],
         ];
 
       case 'COMPLETED':
-        // Said delivered, and now it is the owner's word that settles it. The
-        // button stays until they agree or the grace period runs out, because
-        // a motari who taps it twice has still only delivered once.
-        if (ride.deliveredAt != null) {
-          return [
-            _note(
-              ride.deliveryDisputedAt != null
-                  ? t('parcel.owner_disputed')
-                  : t('parcel.waiting_owner'),
-              ride.deliveryDisputedAt != null ? Brand.red : Brand.amber,
-            ),
-            const SizedBox(height: 8),
-            ..._paymentState(ride),
-          ];
-        }
-        return [
-          PrimaryButton(
-            label: t('parcel.delivered'),
-            icon: Icons.check_circle_outline,
-            onPressed: widget.busy ? null : () => widget.onParcelDelivered(ride.id),
-          ),
-          const SizedBox(height: 8),
-          ..._paymentState(ride),
-        ];
+      case 'CLOSED':
+        return _paymentState(ride);
 
       default:
         return const [];
@@ -627,19 +700,59 @@ class _RidePanelState extends State<RidePanel> {
     }
     if (ride.cashDeclaredAt != null) {
       return [
-        _note(t('ride.cash_declared'), Brand.amber),
-        const SizedBox(height: 8),
-        OutlinedButton(
-          onPressed: widget.busy ? null : () => widget.onDenyCash(ride.id),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Brand.red,
-            side: const BorderSide(color: Color(0xFF451A1A)),
-            padding: const EdgeInsets.symmetric(vertical: 11),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E170C),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Brand.amber),
           ),
-          child: Text(t('ride.not_paid'),
-              style: const TextStyle(
-                  fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: 0.8)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                t('ride.cash_confirm_body'),
+                style: const TextStyle(
+                    color: Brand.text, fontSize: 12, fontWeight: FontWeight.w700, height: 1.35),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: widget.busy ? null : () => widget.onConfirmCash(ride.id),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Brand.green,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text(
+                        t('ride.confirm_cash_btn'),
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: widget.busy ? null : () => widget.onDenyCash(ride.id),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Brand.red,
+                        side: const BorderSide(color: Color(0xFF6B2121)),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: Text(
+                        t('ride.decline_cash_btn'),
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
         ..._ratePassenger(ride),
       ];
@@ -655,23 +768,23 @@ class _RidePanelState extends State<RidePanel> {
         style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w700),
       );
 
-  /// The passenger, as the motari found them.
+  /// Mandatory rating of the passenger by the motari after every ride.
   List<Widget> _ratePassenger(Ride ride) {
     if (ride.passengerRating != null) return const [];
     return [
       const SizedBox(height: 10),
-      Text(t('ride.rate_passenger'),
+      Text(t('ride.must_rate'),
           style: const TextStyle(
-              color: Brand.muted, fontSize: 10.5, fontWeight: FontWeight.w700, letterSpacing: 0.8)),
+              color: Brand.orange, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 0.4)),
       const SizedBox(height: 4),
       Row(
         children: [
           for (var n = 1; n <= 5; n++)
             IconButton(
-              padding: const EdgeInsets.only(right: 2),
+              padding: const EdgeInsets.only(right: 4),
               constraints: const BoxConstraints(),
               onPressed: widget.busy ? null : () => widget.onRate(ride.id, n),
-              icon: const Icon(Icons.star_border, size: 24, color: Brand.amber),
+              icon: const Icon(Icons.star_border, size: 28, color: Brand.amber),
             ),
         ],
       ),

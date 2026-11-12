@@ -14,6 +14,7 @@ import '../navigator.dart';
 import '../permissions.dart';
 import '../routing.dart' as nav;
 import '../theme.dart';
+import '../updater.dart';
 import '../widgets/fee_banner.dart';
 import '../widgets/language_button.dart';
 import '../widgets/map_layers.dart';
@@ -30,19 +31,26 @@ import 'settings_screen.dart';
 class DriveScreen extends StatefulWidget {
   final Api api;
   final VoidCallback onSignedOut;
-  const DriveScreen({super.key, required this.api, required this.onSignedOut});
+  final VoidCallback? onSwitchToPassenger;
+  const DriveScreen({
+    super.key,
+    required this.api,
+    required this.onSignedOut,
+    this.onSwitchToPassenger,
+  });
 
   @override
   State<DriveScreen> createState() => _DriveScreenState();
 }
 
 class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
-  static const _pollInterval = Duration(seconds: 5);
-  static const _heartbeatInterval = Duration(seconds: 4);
+  static const _pollInterval = Duration(seconds: 3);
+  static const _heartbeatInterval = Duration(seconds: 3);
   static final _kigali = LatLng(-1.9441, 30.0619);
 
   final _map = MapController();
   final _ring = AudioPlayer();
+  final _bellPlayer = AudioPlayer();
   final _nav = TurnByTurn();
 
   /// Streets by default here, unlike the passenger side: a motari is following
@@ -71,6 +79,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   String? _error;
   int _offerLeft = 0;
   String? _ringingFor;
+  DateTime? _lastPassengerBellAt;
   bool _framed = false;
 
   MotariProfile? get _profile => _state?.profile;
@@ -88,6 +97,8 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppUpdater.onOfferAction = _handleNativeOfferAction;
+    _checkPendingNativeOfferAction();
     _refresh();
     _poll = Timer.periodic(_pollInterval, (_) => _refresh());
     _heartbeat = Timer.periodic(_heartbeatInterval, (_) => _sendHeartbeat());
@@ -99,15 +110,41 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (AppUpdater.onOfferAction == _handleNativeOfferAction) {
+      AppUpdater.onOfferAction = null;
+    }
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
     _heartbeat?.cancel();
     _tick?.cancel();
     _positions?.cancel();
     _ring.dispose();
+    _bellPlayer.dispose();
     _nav.stop();
     Permissions.clearOffer(_offerNotificationId);
+    AppUpdater.dismissIncomingOfferCall();
     super.dispose();
+  }
+
+  Future<void> _checkPendingNativeOfferAction() async {
+    final pending = await AppUpdater.consumePendingOfferAction();
+    if (pending != null) {
+      _handleNativeOfferAction(pending['action']!, pending['rideId']!);
+    }
+  }
+
+  void _handleNativeOfferAction(String action, String rideId) {
+    if (!mounted) return;
+    _ringingFor = null;
+    _ring.stop();
+    Permissions.clearOffer(_offerNotificationId);
+    // OfferActionReceiver already posts to the backend, and we also refresh/act
+    // here so the UI immediately transitions onto the accepted ride or clears the offer.
+    if (action == 'accept') {
+      _act(() => widget.api.accept(rideId)).whenComplete(_refresh);
+    } else {
+      _act(() => widget.api.decline(rideId)).whenComplete(_refresh);
+    }
   }
 
   @override
@@ -115,6 +152,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     // Coming back to the app should show the truth immediately, not in five
     // seconds: a ride may have been reassigned while it was in the background.
     if (state == AppLifecycleState.resumed) {
+      _checkPendingNativeOfferAction();
       _refresh();
       // Location can be switched off between two shifts: pick the stream back
       // up if it was lost, and say so plainly if it is still gone.
@@ -134,29 +172,20 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     }
     _positions = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
       ),
     ).listen((p) {
       if (!mounted) return;
-
-      /*
-       * Every reading is drawn; not every reading is broadcast.
-       *
-       * Anything worse than five kilometres used to be dropped outright, which
-       * left the motari looking at a map with no moto on it and no way to tell
-       * whether the app or the sky was at fault. The distinction that matters
-       * is not whether to show the fix but whether to send it: a coarse
-       * position in a heartbeat tells a waiting passenger there is a moto
-       * somewhere inside thirty kilometres of them, which is worse for both of
-       * them than saying nothing at all.
-       */
-      setState(() => _position = p);
-      if (!_framed) {
-        _framed = true;
-        _map.move(LatLng(p.latitude, p.longitude), 16);
+      // Zero-error exact coordinate tracking: keep tight fixes so GPS drift is rejected.
+      if (_position == null || p.accuracy <= 35.0 || p.accuracy <= _position!.accuracy) {
+        setState(() => _position = p);
+        if (!_framed) {
+          _framed = true;
+          _map.move(LatLng(p.latitude, p.longitude), 16);
+        }
+        _follow(LatLng(p.latitude, p.longitude));
       }
-      _follow(LatLng(p.latitude, p.longitude));
     });
   }
 
@@ -270,6 +299,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   }
 
   void _apply(MotariState next) {
+    setMapProviderFromConfig(next.mapProvider);
     final offer = next.offer;
     setState(() {
       _state = next;
@@ -288,7 +318,38 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         if (mounted) setState(() => _state = s);
       }).catchError((_) {});
     }
+    AppUpdater.startBackgroundService(online: _online);
     _updateRinging(offer);
+    _checkPassengerBell(next.activeRide);
+  }
+
+  Future<void> _checkPassengerBell(Ride? ride) async {
+    if (ride == null || ride.lastRingAt == null || ride.lastRingBy != 'PASSENGER') return;
+    if (_lastPassengerBellAt != null && !ride.lastRingAt!.isAfter(_lastPassengerBellAt!)) {
+      return;
+    }
+    _lastPassengerBellAt = ride.lastRingAt;
+    await Permissions.showAlertNotification(
+      id: 77,
+      title: '🔔 ${ride.passengerName} is ringing you!',
+      body: 'Passenger rang your bell at ${ride.pickupName ?? "pickup location"}.',
+    );
+    try {
+      await _bellPlayer.stop();
+      await _bellPlayer.setReleaseMode(ReleaseMode.stop);
+      await _bellPlayer.play(AssetSource('audio/incoming-ride.wav'));
+    } catch (_) {}
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: Brand.orange,
+          content: Text(
+            '🔔 ${ride.passengerName} rang your bell!',
+            style: const TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
+          ),
+        ),
+      );
+    }
   }
 
   /// A live offer rings for its whole window, like a phone call: a parcel with
@@ -298,22 +359,17 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     if (shouldRing) {
       if (_ringingFor == offer.rideId) return;
       _ringingFor = offer.rideId;
+      await AppUpdater.showIncomingOfferCall(offer);
+      AppUpdater.bringToFront();
       final asset = offer.isCourier ? 'audio/incoming-delivery.wav' : 'audio/incoming-ride.wav';
       await _ring.stop();
       await _ring.setReleaseMode(ReleaseMode.loop);
       await _ring.play(AssetSource(asset));
-      await Permissions.showOffer(
-        id: _offerNotificationId,
-        title: offer.isCourier ? t('notify.parcel') : t('notify.ride'),
-        body: t('notify.body', {
-          'name': offer.passengerName,
-          'distance': km(offer.distanceToPickupM),
-        }),
-      );
     } else if (_ringingFor != null) {
       _ringingFor = null;
       await _ring.stop();
       await Permissions.clearOffer(_offerNotificationId);
+      await AppUpdater.dismissIncomingOfferCall();
     }
   }
 
@@ -444,9 +500,12 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
           ),
 
           // Top Bar: Plate (left), Language (center), Online switch (right)
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 14,
+            right: 14,
+            child: SizedBox(
+              height: 34,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -470,7 +529,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
 
           // Top Banners (GPS warning, Navigation turns, Fees, Incoming Offer)
           Positioned(
-            top: MediaQuery.of(context).padding.top + 56,
+            top: MediaQuery.of(context).padding.top + 54,
             left: 14,
             right: 14,
             child: Column(
@@ -506,52 +565,63 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
             ),
           ),
 
-          // Floating controls above the sheet: Basemap switcher, voice button, map credit
-          Positioned(
-            right: 14,
-            bottom: MediaQuery.of(context).size.height * 0.62 + 12,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                MapCredit(map: _basemap),
-                const SizedBox(width: 8),
-                if (ride != null) ...[
-                  _voiceButton(),
-                  const SizedBox(width: 6),
-                ],
-                BasemapButton(
-                  value: _basemap,
-                  onChanged: (m) => setState(() => _basemap = m),
-                ),
-              ],
-            ),
-          ),
-
-          // The working sheet.
+          // Floating controls + the working sheet anchored together at the bottom.
           Align(
             alignment: Alignment.bottomCenter,
-            child: RidePanel(
-              state: _state,
-              busy: _busy,
-              error: _error,
-              onAccept: (id) => _act(() => widget.api.accept(id)),
-              onArrived: (id) => _act(() => widget.api.arrived(id)),
-              onComplete: (id) => _act(() => widget.api.complete(id)),
-              onParcelReceived: (id) => _act(() => widget.api.parcelReceived(id)),
-              onParcelDelivered: (id) => _act(() => widget.api.parcelDelivered(id)),
-              onDenyCash: (id) => _act(() => widget.api.denyCash(id)),
-              onRate: (id, stars) => _act(() => widget.api.ratePassenger(id, stars)),
-              onHandBack: (id) => _act(() => widget.api.handBack(id)),
-              onGoOnline: () => _act(() => widget.api.setOnline(true)),
-              onCall: _call,
-              onSaveProfile: (plate, brand, legalName) =>
-                  _act(() => widget.api.saveProfile(
-                        plateNumber: plate,
-                        brandModel: brand,
-                        legalName: legalName,
-                      )),
-              onOpenMoney: _openMoney,
-              onOpenSettings: _openSettings,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const UpdateBanner(),
+                      Row(
+                        children: [
+                          const Spacer(),
+                          MapCredit(map: _basemap),
+                          const SizedBox(width: 8),
+                          if (ride != null) ...[
+                            _voiceButton(),
+                            const SizedBox(width: 6),
+                          ],
+                          BasemapButton(
+                            value: _basemap,
+                            onChanged: (m) => setState(() => _basemap = m),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                RidePanel(
+                  state: _state,
+                  busy: _busy,
+                  error: _error,
+                  onAccept: (id) => _act(() => widget.api.accept(id)),
+                  onArrived: (id) => _act(() => widget.api.arrived(id)),
+                  onComplete: (id) => _act(() => widget.api.complete(id)),
+                  onParcelReceived: (id) => _act(() => widget.api.parcelReceived(id)),
+                  onParcelDelivered: (id) => _act(() => widget.api.parcelDelivered(id)),
+                  onConfirmCash: (id) => _act(() => widget.api.paid(id, 'CASH')),
+                  onDenyCash: (id) => _act(() => widget.api.denyCash(id)),
+                  onRingPassenger: (id) => _act(() => widget.api.ringPassenger(id)),
+                  onRate: (id, stars) => _act(() => widget.api.ratePassenger(id, stars)),
+                  onHandBack: (id) => _act(() => widget.api.handBack(id)),
+                  onGoOnline: () => _act(() => widget.api.setOnline(true)),
+                  onCall: _call,
+                  onSaveProfile: (plate, brand, legalName) =>
+                      _act(() => widget.api.saveProfile(
+                            plateNumber: plate,
+                            brandModel: brand,
+                            legalName: legalName,
+                          )),
+                  onOpenMoney: _openMoney,
+                  onOpenTrips: () => _openMoney(focusTrips: true),
+                  onOpenSettings: _openSettings,
+                ),
+              ],
             ),
           ),
         ],
@@ -577,11 +647,12 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
       );
 
   Widget _chip({required IconData icon, required String label}) => Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: Brand.black.withValues(alpha: 0.94),
           border: Border.all(color: Brand.line),
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -596,7 +667,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                   color: Brand.text,
                   fontSize: 10,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: 1,
+                  letterSpacing: 0.8,
                 ),
               ),
             ),
@@ -740,11 +811,12 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     return GestureDetector(
       onTap: blocked || _busy ? null : () => _act(() => widget.api.setOnline(!online)),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: Brand.black.withValues(alpha: 0.94),
           border: Border.all(color: online ? const Color(0xFF14532D) : Brand.line),
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -757,7 +829,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                 color: online ? Brand.green : Brand.muted,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
-                letterSpacing: 1,
+                letterSpacing: 0.8,
               ),
             ),
           ],
@@ -766,9 +838,13 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     );
   }
 
-  void _openMoney() {
+  void _openMoney({bool focusTrips = false}) {
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => MoneyScreen(api: widget.api, fees: _state?.fees),
+      builder: (_) => MoneyScreen(
+        api: widget.api,
+        fees: _state?.fees,
+        focusTrips: focusTrips,
+      ),
     ));
   }
 
@@ -778,6 +854,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         api: widget.api,
         profile: _profile,
         onSignedOut: widget.onSignedOut,
+        onSwitchToPassenger: widget.onSwitchToPassenger,
       ),
     ));
     // Logging out clears the session on the way back through here; there is

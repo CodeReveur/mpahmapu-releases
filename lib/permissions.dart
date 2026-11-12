@@ -75,7 +75,28 @@ class Permissions {
   static Future<Access> requestNotifications() async {
     await _prepareNotifications();
     final status = await Permission.notification.request();
+    try {
+      await Permission.ignoreBatteryOptimizations.request();
+    } catch (_) {}
     return _fromStatus(status);
+  }
+
+  static Future<Access> overlayStatus() async {
+    try {
+      final status = await Permission.systemAlertWindow.status;
+      return _fromStatus(status);
+    } catch (_) {
+      return Access.granted;
+    }
+  }
+
+  static Future<Access> requestOverlay() async {
+    try {
+      final status = await Permission.systemAlertWindow.request();
+      return _fromStatus(status);
+    } catch (_) {
+      return Access.granted;
+    }
   }
 
   static Access _fromStatus(PermissionStatus s) {
@@ -157,6 +178,42 @@ class Permissions {
       await _notifications.cancel(id: id);
     } catch (_) {
       // Nothing to clear.
+    }
+  }
+
+  /// Show an immediate high-priority push/local notification for ride events
+  /// (Bell ring, 400m ride started, Payment required / Cash declined, Ride finished).
+  static Future<void> showAlertNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    try {
+      await _prepareNotifications();
+      await _notifications.show(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channelId,
+            t('notify.channel'),
+            channelDescription: t('notify.channel_why'),
+            importance: Importance.max,
+            priority: Priority.max,
+            playSound: true,
+            enableVibration: true,
+            visibility: NotificationVisibility.public,
+          ),
+          iOS: const DarwinNotificationDetails(
+            presentAlert: true,
+            presentSound: true,
+            interruptionLevel: InterruptionLevel.timeSensitive,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('[motari] alert notification failed: $e');
     }
   }
 }

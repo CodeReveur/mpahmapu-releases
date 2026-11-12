@@ -280,6 +280,7 @@ class Api {
       PassengerRide.fromJson(await _public('POST', '/api/rides/public', body: {
         'name': name,
         'phone': phone,
+        if (userEmail != null && userEmail!.isNotEmpty) 'email': userEmail,
         'pickupLat': pickupLat,
         'pickupLng': pickupLng,
         'pickupName': pickupName,
@@ -327,6 +328,11 @@ class Api {
   Future<PassengerRide> rateRide(String token, int stars) async =>
       PassengerRide.fromJson(await _public('POST', '/api/rides/public/$token/rate',
           body: {'stars': stars}) as Map<String, dynamic>);
+
+  /// Passenger rings the motari driver's device via the bell icon.
+  Future<PassengerRide> ringDriver(String token) async =>
+      PassengerRide.fromJson(
+          await _public('POST', '/api/rides/public/$token/ring') as Map<String, dynamic>);
 
   /// Place search for the pickup and destination fields.
   ///
@@ -485,6 +491,9 @@ class Api {
 
   /// The motari saying a declared cash payment never arrived.
   Future<MotariState> denyCash(String rideId) => _rideAction(rideId, 'not-paid');
+
+  /// The motari ringing the passenger's device via the bell icon.
+  Future<MotariState> ringPassenger(String rideId) => _rideAction(rideId, 'ring');
 
   /// Pay the outstanding daily fee; a mobile money prompt follows on the phone.
   Future<MotariState> payFees({String? phone}) async => MotariState.fromJson(

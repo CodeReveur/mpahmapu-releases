@@ -1,8 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:motari/i18n.dart';
 import 'package:motari/theme.dart';
+import 'package:motari/updater.dart';
 
 void main() {
+  test('semver comparison detects newer OTA builds', () {
+    expect(AppUpdater.isNewerVersion('1.2.5', '1.2.4'), isTrue);
+    expect(AppUpdater.isNewerVersion('v1.3.0', '1.2.9'), isTrue);
+    expect(AppUpdater.isNewerVersion('1.2.4.12', '1.2.4'), isTrue);
+    expect(AppUpdater.isNewerVersion('1.2.4', '1.2.4'), isFalse);
+    expect(AppUpdater.isNewerVersion('1.2.3', '1.2.4'), isFalse);
+  });
+
   test('money reads the way the apps write it', () {
     expect(rwf(500), 'RWF 500');
     expect(rwf(1500), 'RWF 1,500');

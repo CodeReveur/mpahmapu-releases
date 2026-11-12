@@ -106,24 +106,25 @@ class LanguageButton extends StatelessWidget {
     return GestureDetector(
       onTap: () => _pick(context),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        height: 34,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
-          color: Brand.black.withValues(alpha: 0.94),
+          color: Brand.black.withValues(alpha: 0.92),
           border: Border.all(color: Brand.line),
-          borderRadius: BorderRadius.circular(999),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.language, size: 12, color: Brand.orange),
+            const Icon(Icons.language, size: 13, color: Brand.orange),
             const SizedBox(width: 5),
             Text(
               Lang.short(appLanguage.value),
               style: const TextStyle(
                 color: Brand.text,
-                fontSize: 9.5,
+                fontSize: 10,
                 fontWeight: FontWeight.w900,
-                letterSpacing: 1,
+                letterSpacing: 0.8,
               ),
             ),
           ],
