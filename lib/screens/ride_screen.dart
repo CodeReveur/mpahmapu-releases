@@ -718,14 +718,11 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
               child: _menuDropdown(),
             ),
 
-          // Large Passenger Rating Modal after Motari or Passenger confirms
+          // Large Passenger Rating Modal after successfully completed ride
           if (_ride != null &&
               _ride!.rating == null &&
               (_ride!.status == 'CLOSED' ||
-                  (_ride!.status == 'COMPLETED' &&
-                      (_ride!.paymentStatus == 'PAID' ||
-                          _ride!.cashDeclaredAt != null ||
-                          _ride!.deliveryConfirmedAt != null))))
+                  (_ride!.status == 'COMPLETED' && _ride!.paymentStatus == 'PAID')))
             Positioned.fill(
               child: _ratingModalOverlay(_ride!),
             ),
@@ -2595,7 +2592,6 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
             onPressed:
                 _busy ? null : () => _act(() => widget.api.confirmDelivery(ride.token!)),
           ),
-        ..._mandatoryRatingAndNext(ride),
         const SizedBox(height: 10),
         GestureDetector(
           onTap: _busy ? null : () => _act(() => widget.api.disputeDelivery(ride.token!)),
@@ -2682,11 +2678,10 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
       ];
     }
 
-    // Completed & awaiting payment (or cash confirmation): show payment + mandatory rating
+    // Completed & awaiting payment (or cash confirmation): show payment only until settled
     if (ride.status == 'COMPLETED') {
       return [
         ..._passengerPaymentSection(ride),
-        ..._mandatoryRatingAndNext(ride),
       ];
     }
 
