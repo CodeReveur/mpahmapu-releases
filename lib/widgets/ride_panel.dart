@@ -9,6 +9,9 @@ import '../theme.dart';
 /// usually stopped at the roadside with the engine running.
 class RidePanel extends StatefulWidget {
   final MotariState? state;
+  final bool isOnline;
+  final bool hasData;
+  final bool hasGps;
   final bool busy;
   final String? error;
   final void Function(String rideId) onAccept;
@@ -31,6 +34,9 @@ class RidePanel extends StatefulWidget {
   const RidePanel({
     super.key,
     required this.state,
+    required this.isOnline,
+    this.hasData = true,
+    this.hasGps = true,
     required this.busy,
     required this.error,
     required this.onAccept,
@@ -124,12 +130,6 @@ class _RidePanelState extends State<RidePanel> {
     );
   }
 
-  bool get _isMandatoryOnline {
-    final now = DateTime.now().toUtc();
-    final kigaliHour = (now.hour + 2) % 24;
-    return kigaliHour >= 5 && kigaliHour < 21;
-  }
-
   Widget _tabBar() => Container(
         margin: const EdgeInsets.only(top: 4, bottom: 12),
         child: Row(
@@ -190,7 +190,7 @@ class _RidePanelState extends State<RidePanel> {
   Widget _summary() {
     final ride = _ride;
     final nearby = widget.state?.nearby.length ?? 0;
-    final online = _isMandatoryOnline || (_profile?.online ?? false);
+    final online = widget.isOnline;
     final text = ride != null
         ? t('panel.on_ride')
         : online
@@ -258,15 +258,58 @@ class _RidePanelState extends State<RidePanel> {
   /* ── waiting for work ─────────────────────────────────────────────────── */
 
   List<Widget> _waiting() {
-    final online = _isMandatoryOnline || (_profile?.online ?? false);
+    final online = widget.isOnline;
     final nearby = widget.state?.nearby ?? const <NearbyRide>[];
 
-    if (!online && !_isMandatoryOnline) {
+    if (!online) {
+      final missingReason = !widget.hasData
+          ? 'Switch on Mobile Data so your phone can connect to the live map.'
+          : !widget.hasGps
+              ? 'Turn on GPS Location so passengers can locate you on the map.'
+              : 'Tap below to broadcast your live GPS location and go online.';
       return [
         const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1A0F0A),
+            border: Border.all(color: const Color(0xFF7C2D12)),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.location_disabled, size: 15, color: Brand.amber),
+                  const SizedBox(width: 6),
+                  Text(
+                    !widget.hasData
+                        ? 'Offline · Mobile Data Required'
+                        : !widget.hasGps
+                            ? 'Offline · GPS Location Required'
+                            : t('panel.offline'),
+                    style: const TextStyle(
+                      color: Brand.amber,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                missingReason,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFFBBBBBB), fontSize: 11.5, height: 1.4),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
         PrimaryButton(
           label: t('panel.go_online'),
-          icon: Icons.power_settings_new,
+          icon: Icons.gps_fixed,
           onPressed: widget.busy ? null : widget.onGoOnline,
         ),
       ];

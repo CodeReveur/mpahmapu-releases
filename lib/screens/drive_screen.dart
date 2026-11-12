@@ -76,6 +76,8 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
 
   bool _loading = true;
   bool _busy = false;
+  bool _networkOk = false;
+  bool _wantOnline = true;
   String? _error;
   int _offerLeft = 0;
   String? _ringingFor;
@@ -91,7 +93,9 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     return kigaliHour >= 5 && kigaliHour < 21;
   }
 
-  bool get _online => isMandatoryOnlineHours || (_profile?.online ?? false);
+  /// A motari is only online when mobile data is active, GPS can locate them,
+  /// and the backend has confirmed their live heartbeat.
+  bool get _online => _networkOk && _fixUsable && (_profile?.online ?? false);
 
   @override
   void initState() {
@@ -167,26 +171,41 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
     // catches a motari who turned it off after starting work.
     final access = await Permissions.requestLocation();
     if (!access.ok) {
-      if (mounted) setState(() => _error = t('drive.allow_location'));
+      if (mounted) {
+        setState(() {
+          _position = null;
+          _error = t('drive.allow_location');
+        });
+      }
       return;
     }
+    await _positions?.cancel();
     _positions = Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
       ),
-    ).listen((p) {
-      if (!mounted) return;
-      // Zero-error exact coordinate tracking: keep tight fixes so GPS drift is rejected.
-      if (_position == null || p.accuracy <= 35.0 || p.accuracy <= _position!.accuracy) {
-        setState(() => _position = p);
-        if (!_framed) {
-          _framed = true;
-          _map.move(LatLng(p.latitude, p.longitude), 16);
+    ).listen(
+      (p) {
+        if (!mounted) return;
+        // Zero-error exact coordinate tracking: keep tight fixes so GPS drift is rejected.
+        if (_position == null || p.accuracy <= 35.0 || p.accuracy <= _position!.accuracy) {
+          final wasOnline = _online;
+          setState(() => _position = p);
+          if (!_framed) {
+            _framed = true;
+            _map.move(LatLng(p.latitude, p.longitude), 16);
+          }
+          _follow(LatLng(p.latitude, p.longitude));
+          if (_wantOnline && !wasOnline && _fixUsable) {
+            _sendHeartbeat();
+          }
         }
-        _follow(LatLng(p.latitude, p.longitude));
-      }
-    });
+      },
+      onError: (_) {
+        if (mounted) setState(() => _position = null);
+      },
+    );
   }
 
   /* ── the way there ─────────────────────────────────────────────────────── */
@@ -266,27 +285,86 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _sendHeartbeat() async {
+    final gpsOn = await Geolocator.isLocationServiceEnabled();
+    if (!gpsOn) {
+      if (mounted && _position != null) setState(() => _position = null);
+      return;
+    }
     final p = _position;
-    if (p == null || !_online || !_fixUsable) return;
+    if (p == null || !_wantOnline || !_fixUsable) return;
     try {
       final next = await widget.api.heartbeat(p.latitude, p.longitude);
-      if (mounted) _apply(next);
+      if (mounted) {
+        _networkOk = true;
+        _apply(next);
+      }
     } catch (_) {
-      // A dropped heartbeat is normal on a moving bike; the next one carries.
+      if (mounted) setState(() => _networkOk = false);
     }
+  }
+
+  Future<void> _connectOnline() async {
+    setState(() {
+      _wantOnline = true;
+      _error = null;
+    });
+    final gpsOn = await Geolocator.isLocationServiceEnabled();
+    if (!gpsOn) {
+      if (mounted) {
+        setState(() {
+          _position = null;
+          _error = t('drive.allow_location');
+        });
+      }
+      return;
+    }
+    if (_position == null || !_fixUsable) {
+      await _watchPosition();
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            timeLimit: Duration(seconds: 6),
+          ),
+        );
+        if (mounted) setState(() => _position = pos);
+      } catch (_) {}
+    }
+    final p = _position;
+    if (p == null || !_fixUsable) {
+      if (mounted) {
+        setState(() {
+          _error = t('drive.allow_location');
+        });
+      }
+      return;
+    }
+    await _act(() async {
+      final next = await widget.api.heartbeat(p.latitude, p.longitude);
+      _networkOk = true;
+      return next;
+    });
   }
 
   /* ── state ────────────────────────────────────────────────────────────── */
 
   Future<void> _refresh() async {
+    final gpsOn = await Geolocator.isLocationServiceEnabled();
+    if (!gpsOn && mounted && _position != null) {
+      setState(() => _position = null);
+    }
     try {
       final next = await widget.api.state();
       if (!mounted) return;
+      _networkOk = true;
       _apply(next);
       setState(() {
         _loading = false;
         _error = null;
       });
+      if (_wantOnline && _fixUsable && !(next.profile?.online ?? false)) {
+        _sendHeartbeat();
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -294,7 +372,12 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         _error = e.message;
       });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _networkOk = false;
+        });
+      }
     }
   }
 
@@ -313,11 +396,6 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
         _offerLeft = 0;
       }
     });
-    if (isMandatoryOnlineHours && next.profile != null && !next.profile!.online && !_busy) {
-      widget.api.setOnline(true).then((s) {
-        if (mounted) setState(() => _state = s);
-      }).catchError((_) {});
-    }
     AppUpdater.startBackgroundService(online: _online);
     _updateRinging(offer);
     _checkPassengerBell(next.activeRide);
@@ -517,11 +595,10 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   const LanguageButton(),
-                  if (!isMandatoryOnlineHours)
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: _onlineButton(),
-                    ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: _onlineButton(),
+                  ),
                 ],
               ),
             ),
@@ -597,6 +674,9 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                 ),
                 RidePanel(
                   state: _state,
+                  isOnline: _online,
+                  hasData: _networkOk,
+                  hasGps: _fixUsable,
                   busy: _busy,
                   error: _error,
                   onAccept: (id) => _act(() => widget.api.accept(id)),
@@ -609,7 +689,7 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
                   onRingPassenger: (id) => _act(() => widget.api.ringPassenger(id)),
                   onRate: (id, stars) => _act(() => widget.api.ratePassenger(id, stars)),
                   onHandBack: (id) => _act(() => widget.api.handBack(id)),
-                  onGoOnline: () => _act(() => widget.api.setOnline(true)),
+                  onGoOnline: _connectOnline,
                   onCall: _call,
                   onSaveProfile: (plate, brand, legalName) =>
                       _act(() => widget.api.saveProfile(
@@ -922,30 +1002,40 @@ class _DriveScreenState extends State<DriveScreen> with WidgetsBindingObserver {
   }
 
   Widget _onlineButton() {
-    if (isMandatoryOnlineHours) {
-      return const SizedBox.shrink();
-    }
     final online = _online;
     final blocked = _ride != null || _profile == null;
     return GestureDetector(
-      onTap: blocked || _busy ? null : () => _act(() => widget.api.setOnline(!online)),
+      onTap: blocked || _busy
+          ? null
+          : () {
+              if (online && !isMandatoryOnlineHours) {
+                setState(() => _wantOnline = false);
+                _act(() => widget.api.setOnline(false));
+              } else if (!online) {
+                _connectOnline();
+              }
+            },
       child: Container(
         height: 34,
         padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
           color: Brand.black.withValues(alpha: 0.94),
-          border: Border.all(color: online ? const Color(0xFF14532D) : Brand.line),
+          border: Border.all(color: online ? const Color(0xFF14532D) : const Color(0xFF7F1D1D)),
           borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.power_settings_new, size: 13, color: online ? Brand.green : Brand.muted),
+            Icon(
+              online ? Icons.gps_fixed : Icons.location_disabled,
+              size: 13,
+              color: online ? Brand.green : Brand.amber,
+            ),
             const SizedBox(width: 6),
             Text(
               online ? t('drive.online') : t('drive.offline'),
               style: TextStyle(
-                color: online ? Brand.green : Brand.muted,
+                color: online ? Brand.green : Brand.amber,
                 fontSize: 10,
                 fontWeight: FontWeight.w900,
                 letterSpacing: 0.8,
