@@ -92,10 +92,9 @@ class _RideScreenState extends State<RideScreen> with WidgetsBindingObserver {
   /// Looking up the name of the phone's own fix.
   bool _locating = false;
 
-  /// Streets or satellite. A passenger describing where they are standing has
-  /// an easier time on satellite — a roof, a yard, the shape of a junction —
-  /// so it is one tap away rather than buried.
-  Basemap _basemap = Basemap.satellite;
+  /// Streets or satellite. Streets defaults to crisp black & white; satellite
+  /// is one tap away.
+  Basemap _basemap = Basemap.streets;
 
   String _kind = 'RIDE';
   Quote? _quote;

@@ -42,19 +42,35 @@ Future<void> syncMapProviderFromBackend() async {
   } catch (_) {}
 }
 
+/// High-contrast monochrome (white & black only) color filter for street map tiles.
+const ColorFilter _bwStreetsFilter = ColorFilter.matrix(<double>[
+  0.34, 0.67, 0.14, 0, -18,
+  0.34, 0.67, 0.14, 0, -18,
+  0.34, 0.67, 0.14, 0, -18,
+  0,    0,    0,    1,   0,
+]);
+
 /// The tiles for a basemap, honoring the Admin's global choice between Google Maps and OpenStreetMap.
+/// Streets mode is rendered in crisp white and black only.
 Widget basemapTiles(Basemap map) {
   return ValueListenableBuilder<MapProvider>(
     valueListenable: activeMapProvider,
     builder: (context, provider, _) {
       if (provider == MapProvider.google) {
         final lyrs = map == Basemap.satellite ? 'y' : 'm';
-        return TileLayer(
+        final tileLayer = TileLayer(
           key: ValueKey('google_$lyrs'),
           urlTemplate: 'https://mt1.google.com/vt/lyrs=$lyrs&x={x}&y={y}&z={z}',
           userAgentPackageName: 'rw.mpahmapu.motari',
           maxNativeZoom: 21,
         );
+        if (map == Basemap.streets) {
+          return ColorFiltered(
+            colorFilter: _bwStreetsFilter,
+            child: tileLayer,
+          );
+        }
+        return tileLayer;
       }
 
       switch (map) {
@@ -67,11 +83,14 @@ Widget basemapTiles(Basemap map) {
             maxNativeZoom: 19,
           );
         case Basemap.streets:
-          return TileLayer(
-            key: const ValueKey('osm_streets'),
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'rw.mpahmapu.motari',
-            maxNativeZoom: 19,
+          return ColorFiltered(
+            colorFilter: _bwStreetsFilter,
+            child: TileLayer(
+              key: const ValueKey('osm_streets'),
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'rw.mpahmapu.motari',
+              maxNativeZoom: 19,
+            ),
           );
       }
     },
